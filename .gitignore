@@ -3,3 +3,4 @@ host/.venv/
 __pycache__/
 *.pyc
 esp32/firmware/.pio/
+.claude/
