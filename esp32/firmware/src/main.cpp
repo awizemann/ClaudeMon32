@@ -102,23 +102,47 @@ static void onBLEData(const std::string& data)
 
 static void showBootScreen()
 {
+    // Flash a blank frame first to wipe ghosting left by whatever was on
+    // screen before the reboot, then draw the real boot screen.
+    display.clear();
+    display.fullRefresh();
+
     display.clear();
 
-    // Modern boot screen with rounded frame
-    display.drawRoundRect(8, 8, 184, 184, 8);
+    // Title
+    const char* title = "CLAUDEMON";
+    display.drawTextBold((200 - display.textWidth(title, 2) - 1) / 2, 14, title, 2);
+    display.drawCenteredText(34, "USAGE MONITOR", 1);
 
-    display.drawCenteredText(35, "EPAPER MANAGER", 1);
-    display.drawLine(30, 48, 170, 48);
+    // --- Mascot: a little usage critter ---
+    // Antennae
+    display.fillRect(84, 50, 5, 5, true);
+    display.fillRect(111, 50, 5, 5, true);
+    display.drawLine(86, 55, 86, 62);
+    display.drawLine(113, 55, 113, 62);
 
-    // Version in large font
-    display.drawCenteredTextLarge(65, 100, "0.2.0");
+    // Body
+    display.fillRoundRect(60, 62, 80, 64, 14, true);
 
-    display.drawCenteredText(100, "CUSTOM FIRMWARE", 1);
-    display.drawLine(30, 115, 170, 115);
+    // Eyes (white cutouts)
+    display.fillRect(78, 78, 10, 16, false);
+    display.fillRect(112, 78, 10, 16, false);
 
-    // Status icons preview
-    display.drawCenteredText(135, "WIFI + BLE", 1);
-    display.drawCenteredText(160, "READY", 2);
+    // Smile
+    display.fillRect(94, 100, 12, 3, false);
+
+    // Belly gauge: white pill with a black fill bar (its "usage")
+    display.fillRoundRect(72, 108, 56, 13, 4, false);
+    display.fillRect(75, 111, 27, 7, true);
+
+    // Feet
+    display.fillRoundRect(72, 126, 16, 8, 3, true);
+    display.fillRoundRect(112, 126, 16, 8, 3, true);
+
+    // Footer
+    display.drawLine(30, 150, 170, 150);
+    display.drawCenteredText(160, "V" FIRMWARE_VER, 1);
+    display.drawCenteredText(178, "WAITING FOR HOST", 1);
 
     display.fullRefresh();
 }
@@ -304,28 +328,12 @@ void setup()
         audio.playSuccess();
     }
 
-    // Update display with initial data after short delay
+    // Update display with initial data after short delay. Without a layout,
+    // the boot screen (which already says "WAITING FOR HOST") stays up until
+    // the first set_usage push arrives.
     delay(1000);
     if (display.hasLayout()) {
         updateDisplay();
-    } else {
-        // Show a default status screen
-        display.clear();
-        display.renderStatusBar(wifi.isConnected(), ble.isConnected(), battery.getPercent());
-        display.drawCenteredText(60, DEVICE_NAME, 1);
-        display.drawLine(30, 75, 170, 75);
-
-        if (sensor.isAvailable()) {
-            char tempBuf[16], humBuf[16];
-            snprintf(tempBuf, sizeof(tempBuf), "%.1fC", sensor.getTemperature());
-            snprintf(humBuf, sizeof(humBuf), "%.1f%%", sensor.getHumidity());
-            display.renderTextWidget(10, 90, 88, 60, "Temp", tempBuf, 4);
-            display.renderTextWidget(102, 90, 88, 60, "Humid", humBuf, 4);
-        }
-
-        display.drawCenteredText(160, "WAITING FOR", 1);
-        display.drawCenteredText(172, "CLAUDEMON HOST", 1);
-        display.fullRefresh();
     }
 }
 
@@ -406,20 +414,7 @@ void loop()
         if (display.hasLayout()) {
             updateDisplay();
         } else {
-            // Refresh default status screen
-            display.clear();
-            display.renderStatusBar(wifi.isConnected(), ble.isConnected(), battery.getPercent());
-            display.drawCenteredText(60, DEVICE_NAME, 1);
-            display.drawLine(30, 75, 170, 75);
-            if (sensor.isAvailable()) {
-                char tempBuf[16], humBuf[16];
-                snprintf(tempBuf, sizeof(tempBuf), "%.1fC", sensor.getTemperature());
-                snprintf(humBuf, sizeof(humBuf), "%.1f%%", sensor.getHumidity());
-                display.renderTextWidget(10, 90, 88, 60, "Temp", tempBuf);
-                display.renderTextWidget(102, 90, 88, 60, "Humid", humBuf);
-            }
-            display.drawCenteredText(175, wifi.isConnected() ? wifi.getIP().c_str() : "Offline", 1);
-            display.fullRefresh();
+            // No layout, no usage: the boot screen is static — leave it be.
             lastDisplayUpdate = millis();
         }
     }

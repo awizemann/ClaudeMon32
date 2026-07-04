@@ -43,6 +43,9 @@ class DeviceLink:
         self.close()
         for port in candidate_ports():
             try:
+                # Default DTR/RTS-asserted open: the device's USB-CDC gates its
+                # TX on DTR, so deasserting it silences all responses. This
+                # board does not auto-reset on a normal open.
                 s = serial.Serial(port, BAUD, timeout=0.25)
             except (serial.SerialException, OSError) as e:
                 log.debug("open %s failed: %s", port, e)

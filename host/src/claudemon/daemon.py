@@ -13,11 +13,13 @@ from .serial_link import DeviceLink
 
 log = logging.getLogger(__name__)
 
-POLL_INTERVAL_S = 60
+POLL_INTERVAL_S = 180       # 60s drew steady HTTP 429s with 3 accounts
+MIN_PUSH_GAP_S = 150        # countdown strings tick every minute; don't chase them
 HEARTBEAT_PUSH_S = 5 * 60
 ERROR_THRESHOLD = 3
 BACKOFF_BASE_S = 60
 BACKOFF_MAX_S = 300
+RATE_LIMIT_BACKOFF_S = 300
 RECONNECT_BASE_S = 2
 RECONNECT_MAX_S = 30
 
@@ -80,6 +82,12 @@ class AccountRunner:
                     log.warning("%s: unauthorized after forced refresh: %s", self.label, e2)
                     self._mark_auth_failed()
                     return
+            elif e.status_code == 429:
+                # Throttled, not broken: keep the last snapshot healthy and
+                # slow down without escalating toward ERROR.
+                self.next_poll_at = now + RATE_LIMIT_BACKOFF_S
+                log.info("%s: rate limited; backing off %ds", self.label, RATE_LIMIT_BACKOFF_S)
+                return
             else:
                 self.consecutive_failures += 1
                 backoff = min(BACKOFF_BASE_S * (2 ** (self.consecutive_failures - 1)), BACKOFF_MAX_S)
@@ -139,7 +147,10 @@ def run_loop(foreground: bool = False) -> None:
         # early; the heartbeat keeps device staleness detection honest.
         comparable = json.dumps({**payload["params"], "updated": ""}, sort_keys=True)
         now = time.monotonic()
-        should_push = comparable != last_pushed_payload or (now - last_push_at) > HEARTBEAT_PUSH_S
+        changed = comparable != last_pushed_payload
+        should_push = (changed and (now - last_push_at) >= MIN_PUSH_GAP_S) or (
+            now - last_push_at
+        ) > HEARTBEAT_PUSH_S
 
         if should_push:
             if not link.connected and now >= next_reconnect_at:

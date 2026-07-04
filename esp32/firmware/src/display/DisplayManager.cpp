@@ -713,10 +713,10 @@ void DisplayManager::renderUsageScreen(bool stale)
         }
     }
 
-    // --- Refresh: partial normally; full every 10th render or 30 min (ghosting) ---
+    // --- Refresh: partial normally; full every 5th render or 15 min (ghosting) ---
     uint32_t now = millis();
-    bool needFull = (_usageRenderCount % 10 == 0) ||
-                    (now - _usageLastFullMs > 30UL * 60UL * 1000UL) ||
+    bool needFull = (_usageRenderCount % 5 == 0) ||
+                    (now - _usageLastFullMs > 15UL * 60UL * 1000UL) ||
                     (_usageLastFullMs == 0);
     _usageRenderCount++;
     if (needFull) {
