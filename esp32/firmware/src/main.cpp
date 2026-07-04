@@ -32,6 +32,10 @@ static constexpr uint32_t DISPLAY_UPDATE_FAST     = 5000;  // 5s during first mi
 static bool     wasWiFiConnected  = false;
 static uint32_t bootTime          = 0;
 
+// Usage screen: STALE banner appears when the host stops pushing
+static constexpr uint32_t USAGE_STALE_MS = 10UL * 60UL * 1000UL;
+static bool lastUsageStale = false;
+
 // Deferred WiFi connect — BLE callbacks have limited stack,
 // so WiFi.begin() must run from the main Arduino loop.
 static volatile bool     pendingWiFiConnect = false;
@@ -173,6 +177,10 @@ static void updateDisplay()
 
 void setup()
 {
+    // Default USB-CDC RX buffer is 256 bytes; a multi-account set_usage line
+    // (~500 bytes) arrives as one burst and would drop its tail (and newline).
+    // Must be called before Serial.begin().
+    Serial.setRxBufferSize(SERIAL_BUF_MAX);
     Serial.begin(115200);
     serialBuffer.reserve(512);
     delay(1000);  // Let USB-CDC settle
@@ -315,7 +323,8 @@ void setup()
             display.renderTextWidget(102, 90, 88, 60, "Humid", humBuf, 4);
         }
 
-        display.drawCenteredText(175, "Ready", 1);
+        display.drawCenteredText(160, "WAITING FOR", 1);
+        display.drawCenteredText(172, "CLAUDEMON HOST", 1);
         display.fullRefresh();
     }
 }
@@ -372,7 +381,28 @@ void loop()
         apiPoller.clearNewDataFlag();
     }
 
-    if (shouldUpdate) {
+    // Usage mode takes priority: the screen is redrawn by set_usage on each
+    // push; here we only re-render when the staleness state flips, so the
+    // STALE banner appears/disappears without burning refreshes on identical
+    // content.
+    if (display.hasUsage()) {
+        if (display.consumePendingUsageRender()) {
+            // Fresh push (render deferred from the protocol handler)
+            lastUsageStale = false;
+            display.renderUsageScreen(false);
+        } else {
+            bool stale = display.usageIsStale(USAGE_STALE_MS);
+            if (stale != lastUsageStale) {
+                lastUsageStale = stale;
+                // stale->fresh only happens via a push (handled above);
+                // only the fresh->stale flip needs a render here.
+                if (stale) {
+                    display.renderUsageScreen(true);
+                }
+            }
+        }
+        lastDisplayUpdate = millis();
+    } else if (shouldUpdate) {
         if (display.hasLayout()) {
             updateDisplay();
         } else {

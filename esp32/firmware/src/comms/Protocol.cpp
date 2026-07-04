@@ -51,6 +51,8 @@ std::string Protocol::handleCommand(const std::string& input, const DeviceStatus
         return handleSetWifi(params);
     } else if (command == "set_layout") {
         return handleSetLayout(params);
+    } else if (command == "set_usage") {
+        return handleSetUsage(params);
     } else if (command == "set_api") {
         return handleSetApi(params);
     } else if (command == "set_audio") {
@@ -163,6 +165,42 @@ std::string Protocol::handleSetLayout(JsonObjectConst params)
     }
 
     return makeOk("set_layout", "layout applied");
+}
+
+std::string Protocol::handleSetUsage(JsonObjectConst params)
+{
+    if (!_display) {
+        return makeError("display not available");
+    }
+
+    JsonArrayConst accounts = params["accounts"].as<JsonArrayConst>();
+    if (accounts.isNull()) {
+        return makeError("set_usage requires 'accounts' array");
+    }
+
+    // Ephemeral by design — not persisted to NVS. After a reboot the screen
+    // shows the waiting message until the host pushes again.
+    UsageData data;
+    data.updatedAt = params["updated"] | "";
+
+    for (JsonObjectConst acct : accounts) {
+        if (data.accounts.size() >= 4) break;
+        UsageAccount ua;
+        ua.label         = acct["label"] | "?";
+        ua.fiveHourPct   = (int8_t)(acct["fh_pct"] | -1);
+        ua.fiveHourReset = acct["fh_rst"] | "";
+        ua.weekPct       = (int8_t)(acct["wk_pct"] | -1);
+        ua.weekRenewal   = acct["wk_rnw"] | "";
+        const char* st   = acct["st"] | "o";
+        ua.status        = st[0] ? st[0] : 'o';
+        data.accounts.push_back(ua);
+    }
+
+    // Render is deferred to the main loop (setUsageData sets a pending flag):
+    // the e-ink refresh blocks for seconds and the reply must go out first.
+    _display->setUsageData(data);
+
+    return makeOk("set_usage", "usage updated");
 }
 
 std::string Protocol::handleSetApi(JsonObjectConst params)

@@ -124,6 +124,13 @@ void DisplayManager::drawText(int16_t x, int16_t y, const char* text, uint8_t sc
     }
 }
 
+void DisplayManager::drawTextBold(int16_t x, int16_t y, const char* text, uint8_t scale)
+{
+    // Faux bold: double-draw with a 1px horizontal offset.
+    drawText(x, y, text, scale);
+    drawText(x + 1, y, text, scale);
+}
+
 void DisplayManager::drawCenteredText(int16_t y, const char* text, uint8_t scale)
 {
     int w = textWidth(text, scale);
@@ -569,4 +576,153 @@ String DisplayManager::serializeLayout(const LayoutDef& layout)
     String json;
     serializeJson(doc, json);
     return json;
+}
+
+// =====================================================================
+// Claude Usage Monitor Screen (data pushed from host via set_usage)
+// =====================================================================
+
+void DisplayManager::setUsageData(const UsageData& data)
+{
+    _usage = data;
+    _usage.receivedAtMs = millis();
+    _usage.valid = true;
+    _usagePendingRender = true;
+}
+
+bool DisplayManager::consumePendingUsageRender()
+{
+    if (!_usagePendingRender) return false;
+    _usagePendingRender = false;
+    return true;
+}
+
+bool DisplayManager::hasUsage() const
+{
+    return _usage.valid;
+}
+
+bool DisplayManager::usageIsStale(uint32_t maxAgeMs) const
+{
+    if (!_usage.valid) return false;
+    return (millis() - _usage.receivedAtMs) > maxAgeMs;
+}
+
+void DisplayManager::drawProgressBar(int16_t x, int16_t y, int16_t w, int16_t h, int8_t pct)
+{
+    drawRect(x, y, w, h);
+    if (pct < 0) {
+        drawText(x + (w - textWidth("--", 1)) / 2, y + (h - 7) / 2, "--", 1);
+        return;
+    }
+    uint8_t clamped = pct > 100 ? 100 : pct;
+    int16_t fillW = (int16_t)((int32_t)(w - 4) * clamped / 100);
+    if (fillW > 0) {
+        fillRect(x + 2, y + 2, fillW, h - 4, true);
+    }
+}
+
+void DisplayManager::renderUsageScreen(bool stale)
+{
+    clear();
+
+    // --- Header: title left, updated-at (or STALE) right, underline ---
+    drawText(2, 3, "CLAUDEMON", 1);
+    if (stale) {
+        const char* warn = "STALE";
+        int16_t wx = DISPLAY_WIDTH - 4 - textWidth(warn, 1);
+        drawRect(wx - 3, 0, textWidth(warn, 1) + 6, 13);
+        drawText(wx, 3, warn, 1);
+    } else if (_usage.updatedAt.length() > 0) {
+        drawText(DISPLAY_WIDTH - 2 - textWidth(_usage.updatedAt.c_str(), 1), 3,
+                 _usage.updatedAt.c_str(), 1);
+    }
+    drawLine(0, 13, DISPLAY_WIDTH - 1, 13);
+
+    // --- Account rows, spread evenly over the remaining height ---
+    constexpr int16_t ROWS_TOP  = 17;
+    constexpr int16_t BAR_X     = 22;
+    constexpr int16_t BAR_W     = 144;
+    constexpr int16_t BAR_H     = 10;
+    constexpr int16_t PCT_RIGHT = DISPLAY_WIDTH - 2;
+
+    size_t count = _usage.accounts.size();
+    if (count > 4) count = 4;
+
+    if (count == 0) {
+        drawCenteredText(90, "WAITING FOR", 2);
+        drawCenteredText(110, "CLAUDEMON HOST", 2);
+    }
+
+    int16_t pitch = count > 0 ? (int16_t)((DISPLAY_HEIGHT - ROWS_TOP) / count) : 0;
+    // Row content is 43px tall (36px without the reset line); anything beyond
+    // that in the pitch becomes breathing room between accounts.
+    bool showResetLine = pitch >= 48;
+
+    for (size_t i = 0; i < count; i++) {
+        const UsageAccount& acct = _usage.accounts[i];
+        int16_t y = ROWS_TOP + (int16_t)i * pitch;
+
+        // Title line, bold: label left, weekly renewal (or status suffix)
+        // right. Label is truncated to whatever width remains.
+        const char* right = acct.weekRenewal.c_str();
+        switch (acct.status) {
+            case 'a': right = "AUTH!"; break;
+            case 'e': right = "ERR";   break;
+            case 'd': right = "DATA?"; break;
+            default: break;
+        }
+        int16_t rightW = textWidth(right, 1) + 1;  // +1 for bold offset
+        if (rightW > 1) {
+            drawTextBold(PCT_RIGHT - rightW, y, right, 1);
+        }
+        int16_t labelAvail = (PCT_RIGHT - rightW - 6) - 2;
+        int maxChars = labelAvail / 6;
+        String label = acct.label;
+        if ((int)label.length() > maxChars && maxChars > 0) {
+            label = label.substring(0, maxChars);
+        }
+        drawTextBold(2, y, label.c_str(), 1);
+
+        char pctBuf[8];
+
+        // 5-hour window
+        drawText(2, y + 12, "5H", 1);
+        drawProgressBar(BAR_X, y + 11, BAR_W, BAR_H, acct.fiveHourPct);
+        if (acct.fiveHourPct >= 0) {
+            snprintf(pctBuf, sizeof(pctBuf), "%d%%", acct.fiveHourPct);
+        } else {
+            snprintf(pctBuf, sizeof(pctBuf), "--");
+        }
+        drawText(PCT_RIGHT - textWidth(pctBuf, 1), y + 12, pctBuf, 1);
+
+        // Weekly window
+        drawText(2, y + 25, "WK", 1);
+        drawProgressBar(BAR_X, y + 24, BAR_W, BAR_H, acct.weekPct);
+        if (acct.weekPct >= 0) {
+            snprintf(pctBuf, sizeof(pctBuf), "%d%%", acct.weekPct);
+        } else {
+            snprintf(pctBuf, sizeof(pctBuf), "--");
+        }
+        drawText(PCT_RIGHT - textWidth(pctBuf, 1), y + 25, pctBuf, 1);
+
+        // 5-hour reset countdown (weekly renewal lives on the title line)
+        if (showResetLine && acct.fiveHourReset.length() > 0) {
+            String line = "5H RESETS " + acct.fiveHourReset;
+            drawText(BAR_X, y + 36, line.c_str(), 1);
+        }
+    }
+
+    // --- Refresh: partial normally; full every 10th render or 30 min (ghosting) ---
+    uint32_t now = millis();
+    bool needFull = (_usageRenderCount % 10 == 0) ||
+                    (now - _usageLastFullMs > 30UL * 60UL * 1000UL) ||
+                    (_usageLastFullMs == 0);
+    _usageRenderCount++;
+    if (needFull) {
+        _usageLastFullMs = now;
+        fullRefresh();
+    } else {
+        partialRefresh();
+    }
 }

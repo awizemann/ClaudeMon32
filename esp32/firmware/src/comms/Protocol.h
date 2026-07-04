@@ -56,6 +56,7 @@ private:
     std::string handlePing();
     std::string handleSetWifi(JsonObjectConst params);
     std::string handleSetLayout(JsonObjectConst params);
+    std::string handleSetUsage(JsonObjectConst params);
     std::string handleSetApi(JsonObjectConst params);
     std::string handleSetAudio(JsonObjectConst params);
     std::string handleGetConfig();

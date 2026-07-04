@@ -22,6 +22,24 @@ struct LayoutDef {
     std::vector<WidgetDef> widgets;
 };
 
+// --- Claude usage monitor (pushed from host via set_usage) ---
+
+struct UsageAccount {
+    String label;            // <=10 chars, uppercase
+    int8_t fiveHourPct;      // 0-100, -1 unknown
+    String fiveHourReset;    // countdown pre-rendered by host, e.g. "2H05M"
+    int8_t weekPct;
+    String weekRenewal;      // human-readable, pre-rendered by host, e.g. "WED 8PM"
+    char   status;           // 'o' ok, 'a' auth, 'e' err, 'd' drift
+};
+
+struct UsageData {
+    std::vector<UsageAccount> accounts;
+    String   updatedAt;      // "14:32", pre-rendered by host
+    uint32_t receivedAtMs;   // millis() stamp set on receipt
+    bool     valid = false;
+};
+
 class DisplayManager {
 public:
     DisplayManager();
@@ -31,6 +49,7 @@ public:
 
     // --- Text (5x7 font) ---
     void drawText(int16_t x, int16_t y, const char* text, uint8_t scale);
+    void drawTextBold(int16_t x, int16_t y, const char* text, uint8_t scale);
     void drawCenteredText(int16_t y, const char* text, uint8_t scale);
     int  textWidth(const char* text, uint8_t scale);
 
@@ -70,6 +89,16 @@ public:
     String serializeLayout(const LayoutDef& layout);
     bool hasLayout() const;
 
+    // --- Usage monitor screen ---
+    void setUsageData(const UsageData& data);
+    bool hasUsage() const;
+    bool usageIsStale(uint32_t maxAgeMs) const;
+    void renderUsageScreen(bool stale);
+    // Render is deferred to the main loop: e-ink refresh blocks for seconds,
+    // and the protocol handler must reply immediately (also keeps rendering
+    // off the small NimBLE callback stack).
+    bool consumePendingUsageRender();
+
     // Public for diagnostic access
     EPD154 _epd;
 
@@ -81,9 +110,15 @@ private:
     void fillCircleHelper(int16_t cx, int16_t cy, int16_t r,
                           uint8_t sides, int16_t delta, bool black);
     bool canUseLargeFont(const char* text);
+    void drawProgressBar(int16_t x, int16_t y, int16_t w, int16_t h, int8_t pct);
 
     LayoutDef _currentLayout;
     bool _hasLayout;
+
+    UsageData _usage;
+    uint16_t  _usageRenderCount = 0;
+    uint32_t  _usageLastFullMs  = 0;
+    volatile bool _usagePendingRender = false;
 };
 
 #endif // DISPLAY_MANAGER_H
