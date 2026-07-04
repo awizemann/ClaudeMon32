@@ -9,7 +9,9 @@ ClaudeMon targets the **SpotPear ESP32-S3 1.54-inch e-Paper** development board
 - 1.54" 200×200 mono e-paper, SSD1681 controller
 - Onboard extras the firmware initializes but ClaudeMon doesn't need: SHTC3
   temp/humidity sensor, PCF85063 RTC, ES8311 audio codec, battery circuit
-- Search "ESP32-S3 ePaper 1.54" on SpotPear / AliExpress / Amazon (~$15–20)
+- **Product page:** [Waveshare ESP32-S3 e-Paper 1.54](https://www.waveshare.com/esp32-s3-epaper-1.54.htm) —
+  this exact unit. Also stocked on SpotPear / AliExpress / Amazon
+  (search "ESP32-S3 ePaper 1.54", ~$15–20)
 
 Any other 200×200 SSD1681 ESP32-S3 board will likely work with pin changes in
 `esp32/firmware/src/config.h`. Different panels/boards need a display-driver
