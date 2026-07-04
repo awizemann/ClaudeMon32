@@ -73,11 +73,19 @@ class DeviceLink:
         return bool(resp) and resp.get("status") == "ok"
 
     def send_command(self, command: dict) -> dict | None:
-        """Write one JSON command; return the first JSON response line with a
-        'status' key, or None on timeout/disconnect."""
+        """Write one JSON command; return the matching JSON response, or None
+        on timeout/disconnect.
+
+        Responses are matched by the echoed "cmd" field (the firmware replies
+        {"status":"ok","cmd":<name>,...}; ping answers "pong") so a stale
+        error line that slips past the flush window — e.g. emitted while the
+        device was blocked in an e-ink refresh — can't be misattributed to
+        this command. Error replies carry no "cmd", so they're held aside and
+        returned only if no matching reply arrives by the deadline."""
         if not self.connected:
             return None
         assert self._serial is not None
+        expected_cmd = "pong" if command.get("cmd") == "ping" else command.get("cmd")
         line = json.dumps(command, separators=(",", ":")) + "\n"
         try:
             # Terminate any stale partial line in the device's serial buffer
@@ -97,6 +105,7 @@ class DeviceLink:
 
         deadline = time.monotonic() + RESPONSE_TIMEOUT_S
         buffer = b""
+        unmatched_error: dict | None = None
         while time.monotonic() < deadline:
             try:
                 chunk = self._serial.read(256)
@@ -116,7 +125,17 @@ class DeviceLink:
                     except json.JSONDecodeError:
                         log.debug("skipping non-JSON line: %s", text[:120])
                         continue
-                    if isinstance(obj, dict) and "status" in obj:
+                    if not (isinstance(obj, dict) and "status" in obj):
+                        continue
+                    if obj.get("cmd") == expected_cmd:
                         return obj
+                    # cmd-less error (or a stale reply to some other command):
+                    # keep the latest error as a fallback, don't return it yet.
+                    if "cmd" not in obj:
+                        unmatched_error = obj
+                    else:
+                        log.debug("skipping stale reply for %s", obj.get("cmd"))
+        if unmatched_error is not None:
+            return unmatched_error
         log.warning("no JSON response to %s within %.1fs", command.get("cmd"), RESPONSE_TIMEOUT_S)
         return None

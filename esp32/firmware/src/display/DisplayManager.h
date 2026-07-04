@@ -57,7 +57,6 @@ public:
     void drawCharLarge(int16_t x, int16_t y, char c, bool invert = false);
     void drawTextLarge(int16_t x, int16_t y, const char* text, bool invert = false);
     int  textWidthLarge(const char* text);
-    void drawCenteredTextLarge(int16_t y, int16_t cx, const char* text);
 
     // --- Shape primitives ---
     void drawLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2);
@@ -75,9 +74,6 @@ public:
     void partialRefresh();
 
     // --- Widgets ---
-    void renderTextWidget(int16_t x, int16_t y, int16_t w, int16_t h,
-                          const char* label, const char* value,
-                          int16_t cornerRadius = 0);
     void renderStatusBar(bool wifiConnected, bool bleConnected, uint8_t batteryPercent = 0);
 
     // --- Layout system ---
@@ -111,13 +107,17 @@ private:
                           uint8_t sides, int16_t delta, bool black);
     bool canUseLargeFont(const char* text);
     void drawProgressBar(int16_t x, int16_t y, int16_t w, int16_t h, int8_t pct);
+    void drawUsageGauge(int16_t y, const char* tag, int8_t pct);
+    // Anti-ghosting policy shared by all render paths: partial refresh
+    // normally, full refresh every 5th render or 15 minutes.
+    void applyRefreshPolicy();
 
     LayoutDef _currentLayout;
     bool _hasLayout;
 
     UsageData _usage;
-    uint16_t  _usageRenderCount = 0;
-    uint32_t  _usageLastFullMs  = 0;
+    uint16_t  _renderCount = 0;
+    uint32_t  _lastFullMs  = 0;
     volatile bool _usagePendingRender = false;
 };
 

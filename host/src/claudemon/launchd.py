@@ -12,7 +12,8 @@ from pathlib import Path
 LABEL = "com.claudemon.agent"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 LOG_DIR = Path.home() / "Library" / "Logs" / "claudemon"
-LOG_FILE = LOG_DIR / "claudemon.log"
+LOG_FILE = LOG_DIR / "claudemon.log"   # app logging (rotated by the app)
+CRASH_FILE = LOG_DIR / "claudemon.out" # raw stdout/stderr captured by launchd
 
 
 def _claudemon_executable() -> str:
@@ -35,8 +36,8 @@ def install() -> str:
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": 30,
-        "StandardOutPath": str(LOG_FILE),
-        "StandardErrorPath": str(LOG_FILE),
+        "StandardOutPath": str(CRASH_FILE),
+        "StandardErrorPath": str(CRASH_FILE),
     }
     PLIST_PATH.write_bytes(plistlib.dumps(plist))
 

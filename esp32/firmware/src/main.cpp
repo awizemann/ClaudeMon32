@@ -42,6 +42,14 @@ static volatile bool     pendingWiFiConnect = false;
 static String            pendingWiFiSSID;
 static String            pendingWiFiPass;
 
+// BLE commands are queued and processed on the main loop. Running them on
+// the NimBLE task risks (a) stack overflow on multi-second e-ink renders
+// (set_layout) and (b) a data race: setUsageData mutating _usage while the
+// main loop is mid-renderUsageScreen holding references into it.
+static portMUX_TYPE bleCmdMux = portMUX_INITIALIZER_UNLOCKED;
+static std::vector<std::string> bleCmdQueue;
+static constexpr size_t BLE_CMD_QUEUE_MAX = 8;
+
 // --- Helpers ---
 
 static DeviceStatus getDeviceStatus()
@@ -93,9 +101,31 @@ static void processCommand(const std::string& input, CommandSource source)
 
 static void onBLEData(const std::string& data)
 {
-    Serial.print("[BLE RX] ");
-    Serial.println(data.c_str());
-    processCommand(data, CommandSource::BLE);
+    // NimBLE task context: enqueue only; the main loop processes and replies.
+    taskENTER_CRITICAL(&bleCmdMux);
+    if (bleCmdQueue.size() < BLE_CMD_QUEUE_MAX) {
+        bleCmdQueue.push_back(data);
+    }
+    taskEXIT_CRITICAL(&bleCmdMux);
+}
+
+static void processPendingBLECommands()
+{
+    for (;;) {
+        std::string cmd;
+        taskENTER_CRITICAL(&bleCmdMux);
+        if (!bleCmdQueue.empty()) {
+            cmd = bleCmdQueue.front();
+            bleCmdQueue.erase(bleCmdQueue.begin());
+        }
+        taskEXIT_CRITICAL(&bleCmdMux);
+        if (cmd.empty()) {
+            break;
+        }
+        Serial.print("[BLE RX] ");
+        Serial.println(cmd.c_str());
+        processCommand(cmd, CommandSource::BLE);
+    }
 }
 
 // --- Boot screen ---
@@ -111,7 +141,7 @@ static void showBootScreen()
 
     // Title
     const char* title = "CLAUDEMON";
-    display.drawTextBold((200 - display.textWidth(title, 2) - 1) / 2, 14, title, 2);
+    display.drawTextBold((DISPLAY_WIDTH - display.textWidth(title, 2) - 1) / 2, 14, title, 2);
     display.drawCenteredText(34, "USAGE MONITOR", 1);
 
     // --- Mascot: a little usage critter ---
@@ -352,6 +382,9 @@ void loop()
             serialBuffer += c;
         }
     }
+
+    // Process BLE commands on the main loop (queued from the NimBLE task)
+    processPendingBLECommands();
 
     // Process deferred WiFi connect (set from BLE callback)
     if (pendingWiFiConnect) {

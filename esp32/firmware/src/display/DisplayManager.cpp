@@ -204,12 +204,6 @@ int DisplayManager::textWidthLarge(const char* text)
     return total;
 }
 
-void DisplayManager::drawCenteredTextLarge(int16_t y, int16_t cx, const char* text)
-{
-    int w = textWidthLarge(text);
-    drawTextLarge(cx - w / 2, y, text);
-}
-
 // =====================================================================
 // Shape Primitives
 // =====================================================================
@@ -416,32 +410,6 @@ void DisplayManager::renderStatusBar(bool wifiConnected, bool bleConnected, uint
 // Widget Rendering
 // =====================================================================
 
-void DisplayManager::renderTextWidget(int16_t x, int16_t y, int16_t w, int16_t h,
-                                       const char* label, const char* value,
-                                       int16_t cornerRadius)
-{
-    if (cornerRadius > 0) {
-        drawRoundRect(x, y, w, h, cornerRadius);
-    } else {
-        drawRect(x, y, w, h);
-    }
-    drawText(x + 4, y + 4, label, 1);
-
-    // Try large font for numeric values
-    if (canUseLargeFont(value)) {
-        int vw = textWidthLarge(value);
-        int16_t vx = x + (w - vw) / 2;
-        int16_t vy = y + 16 + (h - 16 - LARGE_FONT_HEIGHT) / 2;
-        drawTextLarge(vx, vy, value);
-    } else {
-        uint8_t scale = 2;
-        int vw = textWidth(value, scale);
-        int16_t vx = x + (w - vw) / 2;
-        int16_t vy = y + 14 + (h - 14 - 7 * scale) / 2;
-        drawText(vx, vy, value, scale);
-    }
-}
-
 void DisplayManager::renderWidget(const WidgetDef& widget, const String& value)
 {
     // Apply value formatting
@@ -524,7 +492,7 @@ void DisplayManager::renderLayout(const std::map<String, String>& dataValues,
         renderWidget(widget, value);
     }
 
-    partialRefresh();
+    applyRefreshPolicy();
 }
 
 bool DisplayManager::parseLayoutJson(const String& json, LayoutDef& layout)
@@ -582,6 +550,28 @@ String DisplayManager::serializeLayout(const LayoutDef& layout)
 // Claude Usage Monitor Screen (data pushed from host via set_usage)
 // =====================================================================
 
+// Row geometry for the usage screen
+static constexpr int16_t USAGE_ROWS_TOP  = 17;
+static constexpr int16_t USAGE_BAR_X     = 22;
+static constexpr int16_t USAGE_BAR_W     = 144;
+static constexpr int16_t USAGE_BAR_H     = 10;
+static constexpr int16_t USAGE_PCT_RIGHT = DISPLAY_WIDTH - 2;
+
+void DisplayManager::applyRefreshPolicy()
+{
+    uint32_t now = millis();
+    bool needFull = (_renderCount % 5 == 0) ||
+                    (now - _lastFullMs > 15UL * 60UL * 1000UL) ||
+                    (_lastFullMs == 0);
+    _renderCount++;
+    if (needFull) {
+        _lastFullMs = now;
+        fullRefresh();
+    } else {
+        partialRefresh();
+    }
+}
+
 void DisplayManager::setUsageData(const UsageData& data)
 {
     _usage = data;
@@ -622,6 +612,20 @@ void DisplayManager::drawProgressBar(int16_t x, int16_t y, int16_t w, int16_t h,
     }
 }
 
+void DisplayManager::drawUsageGauge(int16_t y, const char* tag, int8_t pct)
+{
+    // One window row: tag, bar, right-aligned percent (or "--" when unknown)
+    drawText(2, y + 1, tag, 1);
+    drawProgressBar(USAGE_BAR_X, y, USAGE_BAR_W, USAGE_BAR_H, pct);
+    char pctBuf[8];
+    if (pct >= 0) {
+        snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
+    } else {
+        snprintf(pctBuf, sizeof(pctBuf), "--");
+    }
+    drawText(USAGE_PCT_RIGHT - textWidth(pctBuf, 1), y + 1, pctBuf, 1);
+}
+
 void DisplayManager::renderUsageScreen(bool stale)
 {
     clear();
@@ -640,12 +644,6 @@ void DisplayManager::renderUsageScreen(bool stale)
     drawLine(0, 13, DISPLAY_WIDTH - 1, 13);
 
     // --- Account rows, spread evenly over the remaining height ---
-    constexpr int16_t ROWS_TOP  = 17;
-    constexpr int16_t BAR_X     = 22;
-    constexpr int16_t BAR_W     = 144;
-    constexpr int16_t BAR_H     = 10;
-    constexpr int16_t PCT_RIGHT = DISPLAY_WIDTH - 2;
-
     size_t count = _usage.accounts.size();
     if (count > 4) count = 4;
 
@@ -654,14 +652,14 @@ void DisplayManager::renderUsageScreen(bool stale)
         drawCenteredText(110, "CLAUDEMON HOST", 2);
     }
 
-    int16_t pitch = count > 0 ? (int16_t)((DISPLAY_HEIGHT - ROWS_TOP) / count) : 0;
+    int16_t pitch = count > 0 ? (int16_t)((DISPLAY_HEIGHT - USAGE_ROWS_TOP) / count) : 0;
     // Row content is 43px tall (36px without the reset line); anything beyond
     // that in the pitch becomes breathing room between accounts.
     bool showResetLine = pitch >= 48;
 
     for (size_t i = 0; i < count; i++) {
         const UsageAccount& acct = _usage.accounts[i];
-        int16_t y = ROWS_TOP + (int16_t)i * pitch;
+        int16_t y = USAGE_ROWS_TOP + (int16_t)i * pitch;
 
         // Title line, bold: label left, weekly renewal (or status suffix)
         // right. Label is truncated to whatever width remains.
@@ -674,9 +672,9 @@ void DisplayManager::renderUsageScreen(bool stale)
         }
         int16_t rightW = textWidth(right, 1) + 1;  // +1 for bold offset
         if (rightW > 1) {
-            drawTextBold(PCT_RIGHT - rightW, y, right, 1);
+            drawTextBold(USAGE_PCT_RIGHT - rightW, y, right, 1);
         }
-        int16_t labelAvail = (PCT_RIGHT - rightW - 6) - 2;
+        int16_t labelAvail = (USAGE_PCT_RIGHT - rightW - 6) - 2;
         int maxChars = labelAvail / 6;
         String label = acct.label;
         if ((int)label.length() > maxChars && maxChars > 0) {
@@ -684,45 +682,15 @@ void DisplayManager::renderUsageScreen(bool stale)
         }
         drawTextBold(2, y, label.c_str(), 1);
 
-        char pctBuf[8];
-
-        // 5-hour window
-        drawText(2, y + 12, "5H", 1);
-        drawProgressBar(BAR_X, y + 11, BAR_W, BAR_H, acct.fiveHourPct);
-        if (acct.fiveHourPct >= 0) {
-            snprintf(pctBuf, sizeof(pctBuf), "%d%%", acct.fiveHourPct);
-        } else {
-            snprintf(pctBuf, sizeof(pctBuf), "--");
-        }
-        drawText(PCT_RIGHT - textWidth(pctBuf, 1), y + 12, pctBuf, 1);
-
-        // Weekly window
-        drawText(2, y + 25, "WK", 1);
-        drawProgressBar(BAR_X, y + 24, BAR_W, BAR_H, acct.weekPct);
-        if (acct.weekPct >= 0) {
-            snprintf(pctBuf, sizeof(pctBuf), "%d%%", acct.weekPct);
-        } else {
-            snprintf(pctBuf, sizeof(pctBuf), "--");
-        }
-        drawText(PCT_RIGHT - textWidth(pctBuf, 1), y + 25, pctBuf, 1);
+        drawUsageGauge(y + 11, "5H", acct.fiveHourPct);
+        drawUsageGauge(y + 24, "WK", acct.weekPct);
 
         // 5-hour reset countdown (weekly renewal lives on the title line)
         if (showResetLine && acct.fiveHourReset.length() > 0) {
             String line = "5H RESETS " + acct.fiveHourReset;
-            drawText(BAR_X, y + 36, line.c_str(), 1);
+            drawText(USAGE_BAR_X, y + 36, line.c_str(), 1);
         }
     }
 
-    // --- Refresh: partial normally; full every 5th render or 15 min (ghosting) ---
-    uint32_t now = millis();
-    bool needFull = (_usageRenderCount % 5 == 0) ||
-                    (now - _usageLastFullMs > 15UL * 60UL * 1000UL) ||
-                    (_usageLastFullMs == 0);
-    _usageRenderCount++;
-    if (needFull) {
-        _usageLastFullMs = now;
-        fullRefresh();
-    } else {
-        partialRefresh();
-    }
+    applyRefreshPolicy();
 }

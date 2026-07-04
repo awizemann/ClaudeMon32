@@ -1,9 +1,18 @@
 """Fetch and parse the OAuth usage endpoint (5-hour and weekly windows).
 
-This is the endpoint Claude Code's /usage panel reads. It is undocumented, so
-parsing is deliberately defensive: unknown shapes degrade to None fields and a
-DRIFT flag rather than exceptions, and the raw JSON is logged for inspection.
-Use `claudemon probe <label>` to see the live response and verify the schema.
+This is the endpoint Claude Code's /usage panel reads. Schema verified live
+2026-07-04 (see `claudemon probe`):
+
+    {"five_hour": {"utilization": 11.0, "resets_at": "<ISO8601>", ...},
+     "seven_day": {"utilization": 63.0, "resets_at": "<ISO8601>", ...},
+     "limits": [{"kind": "session"|"weekly_all"|..., "percent": 11,
+                 "resets_at": "<ISO8601>", ...}, ...],
+     ...}
+
+utilization is a 0-100 float (11.0 == 11%). Parsing is pinned to exactly this
+shape plus the verified "limits" array as fallback — deliberately NO guessed
+alias keys: an unrecognized response must trip DRIFT (which logs the raw body)
+rather than half-match and render wrong numbers as healthy.
 """
 
 from __future__ import annotations
@@ -14,20 +23,13 @@ from datetime import datetime, timezone
 
 import httpx
 
+from .http import client
 from .models import AccountCredentials, AccountState, AccountUsage, WindowUsage, utcnow
 
 log = logging.getLogger(__name__)
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 BETA_HEADER = "oauth-2025-04-20"
-
-# Key aliases observed/expected for each window, checked in order.
-FIVE_HOUR_KEYS = ("five_hour", "5h", "fiveHour", "session")
-WEEK_KEYS = ("seven_day", "week", "sevenDay", "seven_day_overall", "weekly")
-# Opus/model-specific weekly buckets some plans report; used as fallback only.
-WEEK_FALLBACK_KEYS = ("seven_day_sonnet", "seven_day_opus", "seven_day_oauth_apps")
-UTILIZATION_KEYS = ("utilization", "used_pct", "usage", "percent")
-RESET_KEYS = ("resets_at", "reset_at", "resetsAt", "reset")
 
 
 class UsageFetchError(RuntimeError):
@@ -46,14 +48,14 @@ def _headers(creds: AccountCredentials) -> dict[str, str]:
 
 def probe(creds: AccountCredentials) -> tuple[int, dict[str, str], str]:
     """Raw fetch for schema inspection. Returns (status, headers, body-text)."""
-    resp = httpx.get(USAGE_URL, headers=_headers(creds), timeout=30)
+    resp = client.get(USAGE_URL, headers=_headers(creds))
     return resp.status_code, dict(resp.headers), resp.text
 
 
 def fetch_usage(label: str, creds: AccountCredentials) -> AccountUsage:
     """Fetch usage for one account. Raises UsageFetchError on HTTP/network failure."""
     try:
-        resp = httpx.get(USAGE_URL, headers=_headers(creds), timeout=30)
+        resp = client.get(USAGE_URL, headers=_headers(creds))
     except httpx.HTTPError as e:
         raise UsageFetchError(f"network error: {e}") from e
 
@@ -73,19 +75,10 @@ def fetch_usage(label: str, creds: AccountCredentials) -> AccountUsage:
 
 
 def parse_usage(label: str, data: dict) -> AccountUsage:
-    """Best-effort parse. Never raises; flags DRIFT when windows can't be found.
-
-    Verified schema (2026-07-04): top-level "five_hour"/"seven_day" objects with
-    utilization (0-100 float) + resets_at (ISO). A parallel "limits" array
-    (kind: "session"/"weekly_all", percent, resets_at) is used as fallback.
-    """
-    five_hour = _find_window(data, FIVE_HOUR_KEYS)
-    week = _find_window(data, WEEK_KEYS) or _find_window(data, WEEK_FALLBACK_KEYS)
-
-    if five_hour is None:
-        five_hour = _find_limit(data, ("session",))
-    if week is None:
-        week = _find_limit(data, ("weekly_all", "weekly"))
+    """Parse the verified schema. Never raises; flags DRIFT when a window
+    can't be found in either the top-level objects or the limits[] array."""
+    five_hour = _parse_window(data.get("five_hour")) or _find_limit(data, ("session",))
+    week = _parse_window(data.get("seven_day")) or _find_limit(data, ("weekly_all",))
 
     drift = five_hour is None or week is None
     if drift:
@@ -104,8 +97,20 @@ def parse_usage(label: str, data: dict) -> AccountUsage:
     )
 
 
+def _parse_window(node) -> WindowUsage | None:
+    """Top-level window object: {"utilization": 0-100, "resets_at": ISO}."""
+    if not isinstance(node, dict):
+        return None
+    utilization = node.get("utilization")
+    pct = _normalize_pct(utilization) if isinstance(utilization, (int, float)) else None
+    resets_at = _parse_timestamp(node.get("resets_at"))
+    if pct is None and resets_at is None:
+        return None
+    return WindowUsage(pct=pct, resets_at=resets_at)
+
+
 def _find_limit(data: dict, kinds: tuple[str, ...]) -> WindowUsage | None:
-    """Fallback: read the "limits" array (kind/percent/resets_at entries)."""
+    """Fallback: the "limits" array ({"kind", "percent", "resets_at"} entries)."""
     limits = data.get("limits")
     if not isinstance(limits, list):
         return None
@@ -119,35 +124,9 @@ def _find_limit(data: dict, kinds: tuple[str, ...]) -> WindowUsage | None:
     return None
 
 
-def _find_window(data: dict, keys: tuple[str, ...]) -> WindowUsage | None:
-    for key in keys:
-        node = data.get(key)
-        if isinstance(node, dict):
-            win = _parse_window(node)
-            if win is not None:
-                return win
-    return None
-
-
-def _parse_window(node: dict) -> WindowUsage | None:
-    pct = None
-    for key in UTILIZATION_KEYS:
-        if key in node and isinstance(node[key], (int, float)):
-            pct = _normalize_pct(node[key])
-            break
-    resets_at = None
-    for key in RESET_KEYS:
-        if key in node and node[key] is not None:
-            resets_at = _parse_timestamp(node[key])
-            break
-    if pct is None and resets_at is None:
-        return None
-    return WindowUsage(pct=pct, resets_at=resets_at)
-
-
 def _normalize_pct(value: float) -> int:
-    # Schema verified 2026-07-04: utilization is a 0-100 float (11.0 == 11%).
-    # Do NOT treat <=1 values as fractions — a real 1% arrives as 1.0.
+    # utilization/percent are 0-100 (11.0 == 11%). Do NOT treat <=1 values as
+    # fractions — a real 1% arrives as 1.0.
     return max(0, min(100, round(value)))
 
 

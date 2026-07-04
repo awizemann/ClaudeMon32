@@ -6,6 +6,10 @@ would invalidate whichever client refreshes second).
 
 Flow: paste-code mode. We open the claude.ai authorize page with `code=true`;
 after sign-in the page displays "code#state" for the user to paste back.
+
+Error contract:
+- OAuthError          — definitive auth failure (grant rejected); re-login needed
+- OAuthTransientError — network / 5xx / timeout; retry later, auth is NOT dead
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ import urllib.parse
 
 import httpx
 
+from . import keychain
+from .http import client
 from .models import AccountCredentials
 
 # Claude Code's public OAuth client (no client secret; PKCE only).
@@ -29,7 +35,11 @@ SCOPES = "user:profile user:inference"
 
 
 class OAuthError(RuntimeError):
-    pass
+    """Definitive auth failure — the grant is dead; the user must re-login."""
+
+
+class OAuthTransientError(RuntimeError):
+    """Network / server-side failure — the grant is still presumed valid."""
 
 
 def make_pkce() -> tuple[str, str]:
@@ -81,47 +91,70 @@ def exchange_code(pasted: str, verifier: str, expected_state: str) -> AccountCre
     if state != expected_state:
         raise OAuthError("State mismatch — restart the login (possible CSRF or stale paste)")
 
-    resp = httpx.post(
-        TOKEN_URL,
-        json={
-            "grant_type": "authorization_code",
-            "code": code,
-            "state": state,
-            "client_id": CLIENT_ID,
-            "redirect_uri": REDIRECT_URI,
-            "code_verifier": verifier,
-        },
-        timeout=30,
-    )
+    try:
+        resp = client.post(
+            TOKEN_URL,
+            json={
+                "grant_type": "authorization_code",
+                "code": code,
+                "state": state,
+                "client_id": CLIENT_ID,
+                "redirect_uri": REDIRECT_URI,
+                "code_verifier": verifier,
+            },
+        )
+    except httpx.HTTPError as e:
+        raise OAuthError(f"Token exchange failed (network): {e}") from e
     if resp.status_code != 200:
         raise OAuthError(f"Token exchange failed ({resp.status_code}): {resp.text[:500]}")
     return _creds_from_token_response(resp.json())
 
 
 def refresh(creds: AccountCredentials) -> AccountCredentials:
-    """Refresh an access token. Raises OAuthError on a definitive auth failure.
+    """Refresh an access token.
 
-    The caller MUST persist the returned credentials immediately — the refresh
+    Raises OAuthError on a definitive rejection (grant dead) and
+    OAuthTransientError on network/5xx (grant still presumed valid). The
+    caller MUST persist the returned credentials immediately — the refresh
     token rotates, and the old one is dead after this call succeeds.
     """
-    resp = httpx.post(
-        TOKEN_URL,
-        json={
-            "grant_type": "refresh_token",
-            "refresh_token": creds.refresh_token,
-            "client_id": CLIENT_ID,
-        },
-        timeout=30,
-    )
+    try:
+        resp = client.post(
+            TOKEN_URL,
+            json={
+                "grant_type": "refresh_token",
+                "refresh_token": creds.refresh_token,
+                "client_id": CLIENT_ID,
+            },
+        )
+    except httpx.HTTPError as e:
+        raise OAuthTransientError(f"refresh network error: {e}") from e
     if resp.status_code in (400, 401, 403):
         raise OAuthError(f"Refresh rejected ({resp.status_code}): {resp.text[:500]}")
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        raise OAuthTransientError(f"refresh HTTP {resp.status_code}: {resp.text[:300]}")
     new = _creds_from_token_response(resp.json())
     if new.subscription_type is None:
         new.subscription_type = creds.subscription_type
     if not new.scopes:
         new.scopes = creds.scopes
     return new
+
+
+def load_fresh(label: str) -> AccountCredentials:
+    """Load an account's credentials, refreshing (and persisting the rotated
+    token) if they are near expiry. The single entry point every consumer of
+    a live token must use — the rotation-persist step is security-critical
+    and must not be duplicated.
+
+    Raises: keychain.KeychainError (incl. KeychainNotFoundError), OAuthError,
+    OAuthTransientError.
+    """
+    creds = keychain.load_account(label)
+    if creds.expires_within():
+        creds = refresh(creds)
+        keychain.save_account(label, creds)  # rotated token — persist NOW
+    return creds
 
 
 def new_state() -> str:

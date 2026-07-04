@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-from pathlib import Path
 
 from . import keychain, oauth, render, usage
 from .models import AccountState, AccountUsage, utcnow
@@ -20,8 +19,7 @@ ERROR_THRESHOLD = 3
 BACKOFF_BASE_S = 60
 BACKOFF_MAX_S = 300
 RATE_LIMIT_BACKOFF_S = 300
-RECONNECT_BASE_S = 2
-RECONNECT_MAX_S = 30
+LOOP_TICK_S = 10
 
 STATE_FILE = keychain.CONFIG_DIR / "state.json"
 
@@ -36,6 +34,7 @@ class AccountRunner:
         self.next_poll_at = 0.0
         self.auth_failed = False
         self.last_auth_log = 0.0
+        self.credentials_gone = False  # Keychain item vanished; prune this account
 
     def poll(self) -> None:
         now = time.monotonic()
@@ -51,36 +50,29 @@ class AccountRunner:
             return
 
         try:
-            creds = keychain.load_account(self.label)
-        except keychain.KeychainError as e:
-            log.error("%s: %s", self.label, e)
+            creds = oauth.load_fresh(self.label)
+        except keychain.KeychainNotFoundError:
+            log.warning(
+                "%s: credentials no longer in the Keychain; removing account", self.label
+            )
+            self.credentials_gone = True
             self._mark_auth_failed()
             return
-
-        if creds.expires_within():
-            try:
-                creds = oauth.refresh(creds)
-                keychain.save_account(self.label, creds)  # rotated token — persist NOW
-            except oauth.OAuthError as e:
-                log.warning("%s: token refresh rejected: %s", self.label, e)
-                self._mark_auth_failed()
-                return
-            except Exception as e:  # network etc. — transient, retry next cycle
-                log.warning("%s: token refresh error (transient): %s", self.label, e)
-                return
+        except (keychain.KeychainError, oauth.OAuthError) as e:
+            log.warning("%s: %s", self.label, e)
+            self._mark_auth_failed()
+            return
+        except oauth.OAuthTransientError as e:
+            log.warning("%s: token refresh error (transient): %s", self.label, e)
+            return
 
         try:
             snap = usage.fetch_usage(self.label, creds)
         except usage.UsageFetchError as e:
             if e.status_code == 401:
                 # Token looked valid but was rejected: one forced refresh, then degrade.
-                try:
-                    creds = oauth.refresh(creds)
-                    keychain.save_account(self.label, creds)
-                    snap = usage.fetch_usage(self.label, creds)
-                except (oauth.OAuthError, usage.UsageFetchError) as e2:
-                    log.warning("%s: unauthorized after forced refresh: %s", self.label, e2)
-                    self._mark_auth_failed()
+                snap = self._forced_refresh_fetch(creds)
+                if snap is None:
                     return
             elif e.status_code == 429:
                 # Throttled, not broken: keep the last snapshot healthy and
@@ -103,13 +95,50 @@ class AccountRunner:
         self.consecutive_failures = 0
         self.snapshot = snap
 
+    def _forced_refresh_fetch(self, creds) -> AccountUsage | None:
+        """401 with a fresh-looking token: refresh once, retry the fetch.
+        Returns the snapshot, or None after classifying the failure."""
+        try:
+            creds = oauth.refresh(creds)
+            keychain.save_account(self.label, creds)
+            return usage.fetch_usage(self.label, creds)
+        except (oauth.OAuthError, keychain.KeychainError) as e:
+            log.warning("%s: unauthorized after forced refresh: %s", self.label, e)
+            self._mark_auth_failed()
+            return None
+        except (oauth.OAuthTransientError, usage.UsageFetchError) as e:
+            log.warning("%s: forced refresh/fetch failed (transient): %s", self.label, e)
+            return None
+
     def _mark_auth_failed(self) -> None:
         self.auth_failed = True
         self.snapshot.state = AccountState.AUTH
         self.last_auth_log = time.monotonic()
 
 
-def run_loop(foreground: bool = False) -> None:
+def _reconcile_runners(runners: dict[str, AccountRunner]) -> None:
+    """Sync runners with the account index; pick up login/logout without a
+    restart and prune accounts whose Keychain item vanished."""
+    for label, runner in list(runners.items()):
+        if runner.credentials_gone:
+            keychain.delete_account(label)  # prunes the index; item already gone
+            del runners[label]
+    try:
+        current = keychain.list_accounts()
+    except keychain.KeychainError as e:
+        log.error("account index unreadable; keeping last-known accounts: %s", e)
+        return
+    for label in current:
+        if label not in runners:
+            log.info("account added: %s", label)
+            runners[label] = AccountRunner(label)
+    for label in list(runners):
+        if label not in current:
+            log.info("account removed: %s", label)
+            del runners[label]
+
+
+def run_loop() -> None:
     labels = keychain.list_accounts()
     if not labels:
         log.error("no accounts configured — run `claudemon login <label>` first")
@@ -119,58 +148,62 @@ def run_loop(foreground: bool = False) -> None:
     runners = {label: AccountRunner(label) for label in labels}
     link = DeviceLink()
     last_pushed_payload: str | None = None
-    last_push_at = 0.0
-    next_reconnect_at = 0.0
-    reconnect_backoff = RECONNECT_BASE_S
+    last_state_sig: str | None = None
+    last_push_at = float("-inf")  # monotonic() is uptime-based; 0.0 would gate
+    next_reconnect_at = 0.0       # the first push on machines that just booted
+    reconnect_backoff = 2.0
 
     while True:
-        # Pick up accounts added/removed via `claudemon login/logout` without
-        # requiring an agent restart.
-        current = keychain.list_accounts()
-        for label in current:
-            if label not in runners:
-                log.info("account added: %s", label)
-                runners[label] = AccountRunner(label)
-        for label in list(runners):
-            if label not in current:
-                log.info("account removed: %s", label)
-                del runners[label]
-
+        _reconcile_runners(runners)
         for runner in runners.values():
             runner.poll()
 
         snapshots = [r.snapshot for r in runners.values()]
-        write_state(snapshots)
 
-        payload = render.to_device_payload(snapshots, utcnow())
-        # Compare without the volatile "updated" clock so only real changes push
-        # early; the heartbeat keeps device staleness detection honest.
-        comparable = json.dumps({**payload["params"], "updated": ""}, sort_keys=True)
+        # State file + device payload only change when a poll landed; skip the
+        # serialization work on the ~17 idle ticks between polls.
+        state_sig = json.dumps(
+            [s.to_state_dict() for s in snapshots], sort_keys=True
+        )
+        if state_sig != last_state_sig:
+            last_state_sig = state_sig
+            write_state(snapshots)
+
         now = time.monotonic()
-        changed = comparable != last_pushed_payload
-        should_push = (changed and (now - last_push_at) >= MIN_PUSH_GAP_S) or (
-            now - last_push_at
-        ) > HEARTBEAT_PUSH_S
+        due_for_change_push = (now - last_push_at) >= MIN_PUSH_GAP_S
+        due_for_heartbeat = (now - last_push_at) > HEARTBEAT_PUSH_S
 
-        if should_push:
-            if not link.connected and now >= next_reconnect_at:
-                if link.connect():
-                    reconnect_backoff = RECONNECT_BASE_S
-                else:
-                    next_reconnect_at = now + reconnect_backoff
-                    reconnect_backoff = min(reconnect_backoff * 2, RECONNECT_MAX_S)
-                    log.debug("device not found; retrying in %ds", reconnect_backoff)
+        if due_for_change_push or due_for_heartbeat:
+            payload = render.to_device_payload(snapshots, utcnow())
+            # Compare without the volatile "updated" clock so only content
+            # changes (percentages, countdown strings) trigger an early push.
+            comparable = json.dumps({**payload["params"], "updated": ""}, sort_keys=True)
+            changed = comparable != last_pushed_payload
 
-            if link.connected:
-                resp = link.send_command(payload)
-                if resp and resp.get("status") == "ok":
-                    last_pushed_payload = comparable
-                    last_push_at = now
-                    log.info("pushed usage to device (%s)", link.port)
-                else:
-                    log.warning("device push failed; will retry next cycle")
+            if changed or due_for_heartbeat:
+                if not link.connected and now >= next_reconnect_at:
+                    if link.connect():
+                        reconnect_backoff = 2.0
+                    else:
+                        next_reconnect_at = now + reconnect_backoff
+                        reconnect_backoff = min(reconnect_backoff * 2, 30.0)
+                        log.debug("device not found; retrying in %ds", reconnect_backoff)
 
-        time.sleep(5 if foreground else 10)
+                if link.connected:
+                    resp = link.send_command(payload)
+                    if resp and resp.get("status") == "ok":
+                        last_pushed_payload = comparable
+                        last_push_at = now
+                        log.log(
+                            logging.INFO if changed else logging.DEBUG,
+                            "pushed usage to device (%s)%s",
+                            link.port,
+                            "" if changed else " [heartbeat]",
+                        )
+                    else:
+                        log.warning("device push failed; will retry next cycle")
+
+        time.sleep(LOOP_TICK_S)
 
 
 def write_state(snapshots: list[AccountUsage]) -> None:

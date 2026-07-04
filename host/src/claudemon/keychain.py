@@ -28,6 +28,14 @@ class KeychainError(RuntimeError):
     pass
 
 
+class KeychainNotFoundError(KeychainError):
+    """The item does not exist (vs. locked/denied) — safe to self-heal the index."""
+
+
+# `security` exit status for errSecItemNotFound
+_SEC_ITEM_NOT_FOUND_RC = 44
+
+
 def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     proc = subprocess.run([SECURITY, *args], capture_output=True, text=True)
     if check and proc.returncode != 0:
@@ -53,8 +61,12 @@ def save_account(label: str, creds: AccountCredentials) -> None:
 
 def load_account(label: str) -> AccountCredentials:
     proc = _run(["find-generic-password", "-s", SERVICE, "-a", label, "-w"], check=False)
+    if proc.returncode == _SEC_ITEM_NOT_FOUND_RC:
+        raise KeychainNotFoundError(f"No stored credentials for account '{label}'")
     if proc.returncode != 0:
-        raise KeychainError(f"No stored credentials for account '{label}'")
+        raise KeychainError(
+            f"Keychain read failed for '{label}' (rc={proc.returncode}): {proc.stderr.strip()}"
+        )
     return AccountCredentials.from_json(proc.stdout.strip())
 
 
@@ -64,13 +76,19 @@ def delete_account(label: str) -> None:
 
 
 def list_accounts() -> list[str]:
+    """Read the label index. A missing index means no accounts; an unreadable
+    one is an error — silently returning [] would make the daemon stop polling
+    every account while valid credentials still sit in the Keychain."""
     if not INDEX_FILE.exists():
         return []
     try:
         data = json.loads(INDEX_FILE.read_text())
         return sorted(data.get("accounts", []))
-    except (json.JSONDecodeError, OSError):
-        return []
+    except (json.JSONDecodeError, OSError) as e:
+        raise KeychainError(
+            f"Account index {INDEX_FILE} is unreadable ({e}); "
+            f"fix or delete it, then re-run `claudemon login` for each account"
+        ) from e
 
 
 def _write_index(labels: list[str]) -> None:

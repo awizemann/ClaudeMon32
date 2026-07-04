@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import logging.handlers
 import sys
 import webbrowser
 
@@ -15,14 +16,21 @@ from .serial_link import DeviceLink
 log = logging.getLogger("claudemon")
 
 
-def _setup_logging(foreground: bool) -> None:
-    # Under launchd, stdout/stderr are already redirected to the log file by
-    # the plist — a separate FileHandler would double every line.
-    del foreground
+def _setup_logging(to_file: bool) -> None:
+    """Interactive commands (and `run --foreground`) log to stderr; the
+    launchd-managed daemon logs to a rotating file. The plist's stdout/stderr
+    capture only crash output (claudemon.out), so nothing is double-logged."""
+    if to_file:
+        launchd.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        handler: logging.Handler = logging.handlers.RotatingFileHandler(
+            launchd.LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
+        )
+    else:
+        handler = logging.StreamHandler()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.StreamHandler()],
+        handlers=[handler],
     )
 
 
@@ -78,15 +86,12 @@ def _collect_snapshots() -> list[AccountUsage]:
     for label in keychain.list_accounts():
         snap = AccountUsage(label=label)
         try:
-            creds = keychain.load_account(label)
-            if creds.expires_within():
-                creds = oauth.refresh(creds)
-                keychain.save_account(label, creds)
+            creds = oauth.load_fresh(label)
             snap = usage.fetch_usage(label, creds)
         except (keychain.KeychainError, oauth.OAuthError) as e:
             log.warning("%s: %s", label, e)
             snap.state = AccountState.AUTH
-        except usage.UsageFetchError as e:
+        except (oauth.OAuthTransientError, usage.UsageFetchError) as e:
             log.warning("%s: %s", label, e)
             snap.state = AccountState.ERROR
         snapshots.append(snap)
@@ -120,12 +125,9 @@ def cmd_probe(args: argparse.Namespace) -> int:
         return 1
     for label in labels:
         try:
-            creds = keychain.load_account(label)
-            if creds.expires_within():
-                creds = oauth.refresh(creds)
-                keychain.save_account(label, creds)
+            creds = oauth.load_fresh(label)
             status_code, headers, body = usage.probe(creds)
-        except (keychain.KeychainError, oauth.OAuthError) as e:
+        except (keychain.KeychainError, oauth.OAuthError, oauth.OAuthTransientError) as e:
             print(f"== {label}: {e}", file=sys.stderr)
             continue
         print(f"== {label}: HTTP {status_code}")
@@ -159,8 +161,8 @@ def cmd_push_once(_args: argparse.Namespace) -> int:
     return 1
 
 
-def cmd_run(args: argparse.Namespace) -> int:
-    daemon.run_loop(foreground=args.foreground)
+def cmd_run(_args: argparse.Namespace) -> int:
+    daemon.run_loop()
     return 0
 
 
@@ -211,7 +213,7 @@ def main() -> None:
     p.set_defaults(func=cmd_push_once)
 
     p = sub.add_parser("run", help="poll/push loop (used by the launchd agent)")
-    p.add_argument("--foreground", action="store_true", help="log to stderr only")
+    p.add_argument("--foreground", action="store_true", help="log to stderr instead of the log file")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("install-agent", help="install + start the launchd background agent")
@@ -221,7 +223,7 @@ def main() -> None:
     p.set_defaults(func=cmd_uninstall_agent)
 
     args = parser.parse_args()
-    _setup_logging(foreground=getattr(args, "foreground", True) or args.command != "run")
+    _setup_logging(to_file=args.command == "run" and not getattr(args, "foreground", False))
     raise SystemExit(args.func(args))
 
 
