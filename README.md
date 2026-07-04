@@ -85,6 +85,7 @@ JSON is logged).
 
 ## Docs
 
+- **[User guide](docs/guide/README.md)** — [getting started](docs/guide/getting-started.md), [using ClaudeMon](docs/guide/using-claudemon.md), [FAQ](docs/guide/faq.md)
 - [Hardware & flashing](docs/hardware.md)
 - [Serial protocol](docs/protocol.md) — port the display side to other boards
 - [Architecture](docs/architecture.md) — auth model, refresh cadence, failure handling
@@ -95,4 +96,9 @@ drawing code: `uv run docs/tools/mockup.py`.
 
 ## License
 
-[MIT](LICENSE). Third-party components and attribution: [docs/licenses.md](docs/licenses.md).
+ClaudeMon is [MIT-licensed](LICENSE). The firmware links third-party components
+under their own licenses — ArduinoJson (MIT), NimBLE-Arduino (Apache-2.0), the
+arduino-esp32 core (LGPL-2.1), and SSD1681 waveform tables from the display
+vendor's MIT-style demo code. Full notices, including how the prebuilt release
+binaries satisfy the LGPL rebuild requirement (this repo *is* the complete
+corresponding source): [docs/licenses.md](docs/licenses.md).
