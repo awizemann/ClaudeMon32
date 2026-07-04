@@ -37,6 +37,22 @@ def _setup_logging(to_file: bool) -> None:
 # ---------------------------------------------------------------- commands
 
 
+def _find_duplicate_org(new_label: str, org_id: str | None) -> str | None:
+    """Return the label of an existing account with the same organization id."""
+    if not org_id:
+        return None
+    for label in keychain.list_accounts():
+        if label == new_label:
+            continue
+        try:
+            existing = keychain.load_account(label)
+        except keychain.KeychainError:
+            continue
+        if existing.organization_id == org_id:
+            return label
+    return None
+
+
 def cmd_login(args: argparse.Namespace) -> int:
     label = args.label
     verifier, challenge = oauth.make_pkce()
@@ -46,6 +62,10 @@ def cmd_login(args: argparse.Namespace) -> int:
     print(f"Logging in account '{label}'.")
     print("A browser window will open. Sign in to the Claude account you want")
     print("to monitor, then copy the code the page shows (format: code#state).\n")
+    if keychain.list_accounts():
+        print("NOTE: your browser will silently reuse the claude.ai account it is")
+        print("already signed in to. To add a DIFFERENT account, copy the URL below")
+        print("into a private/incognito window instead.\n")
     print(f"If the browser doesn't open, visit:\n  {url}\n")
     webbrowser.open(url)
 
@@ -58,6 +78,17 @@ def cmd_login(args: argparse.Namespace) -> int:
     except oauth.OAuthError as e:
         print(f"Login failed: {e}", file=sys.stderr)
         return 1
+
+    creds.organization_id = usage.fetch_org_id(creds)
+    duplicate = _find_duplicate_org(label, creds.organization_id)
+    if duplicate:
+        print(
+            f"\nWARNING: this grant belongs to the same Claude account as "
+            f"'{duplicate}' — the browser probably reused its signed-in session.\n"
+            f"Storing it anyway as '{label}'. If that wasn't the intent, run\n"
+            f"`claudemon logout {label}` and retry from a private window.",
+            file=sys.stderr,
+        )
 
     keychain.save_account(label, creds)
     sub = f" ({creds.subscription_type})" if creds.subscription_type else ""

@@ -136,6 +136,8 @@ def refresh(creds: AccountCredentials) -> AccountCredentials:
     new = _creds_from_token_response(resp.json())
     if new.subscription_type is None:
         new.subscription_type = creds.subscription_type
+    if new.organization_id is None:
+        new.organization_id = creds.organization_id
     if not new.scopes:
         new.scopes = creds.scopes
     return new

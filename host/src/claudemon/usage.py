@@ -52,6 +52,16 @@ def probe(creds: AccountCredentials) -> tuple[int, dict[str, str], str]:
     return resp.status_code, dict(resp.headers), resp.text
 
 
+def fetch_org_id(creds: AccountCredentials) -> str | None:
+    """The organization this grant belongs to (for duplicate-login detection).
+    Best-effort: returns None on any failure."""
+    try:
+        resp = client.get(USAGE_URL, headers=_headers(creds))
+        return resp.headers.get("anthropic-organization-id")
+    except httpx.HTTPError:
+        return None
+
+
 def fetch_usage(label: str, creds: AccountCredentials) -> AccountUsage:
     """Fetch usage for one account. Raises UsageFetchError on HTTP/network failure."""
     try:

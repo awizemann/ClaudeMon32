@@ -23,6 +23,7 @@ class AccountCredentials:
     expires_at: int  # epoch milliseconds
     scopes: list[str] = field(default_factory=list)
     subscription_type: str | None = None
+    organization_id: str | None = None  # used to detect duplicate logins
 
     def expires_within(self, margin_seconds: int = 120) -> bool:
         return (self.expires_at / 1000) - time.time() < margin_seconds
@@ -35,6 +36,7 @@ class AccountCredentials:
                 "expiresAt": self.expires_at,
                 "scopes": self.scopes,
                 "subscriptionType": self.subscription_type,
+                "organizationId": self.organization_id,
             }
         )
 
@@ -47,6 +49,7 @@ class AccountCredentials:
             expires_at=int(d["expiresAt"]),
             scopes=list(d.get("scopes") or []),
             subscription_type=d.get("subscriptionType"),
+            organization_id=d.get("organizationId"),
         )
 
 
