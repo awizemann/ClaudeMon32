@@ -95,4 +95,4 @@ drawing code: `uv run docs/tools/mockup.py`.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Third-party components and attribution: [docs/licenses.md](docs/licenses.md).
