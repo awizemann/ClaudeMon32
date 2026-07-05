@@ -154,13 +154,13 @@ def draw_usage_gauge(s: Screen, y: int, tag: str, pct: int) -> None:
 
 def render_usage(accounts: list[dict], updated: str, stale: bool = False) -> Screen:
     s = Screen()
-    s.draw_text(2, 3, "CLAUDEMON")
+    s.draw_text_bold(2, 3, "CLAUDEMON")
     if stale:
         wx = WIDTH - 4 - s.text_width("STALE")
         s.draw_rect(wx - 3, 0, s.text_width("STALE") + 6, 13)
-        s.draw_text(wx, 3, "STALE")
+        s.draw_text_bold(wx, 3, "STALE")
     else:
-        s.draw_text(WIDTH - 2 - s.text_width(updated), 3, updated)
+        s.draw_text_bold(WIDTH - 2 - s.text_width(updated) - 1, 3, updated)
     s.draw_line(0, 13, WIDTH - 1, 13)
 
     count = min(len(accounts), 4)
@@ -179,7 +179,7 @@ def render_usage(accounts: list[dict], updated: str, stale: bool = False) -> Scr
         draw_usage_gauge(s, y + 11, "5H", a["fh_pct"])
         draw_usage_gauge(s, y + 24, "WK", a["wk_pct"])
         if show_reset and a["fh_rst"]:
-            s.draw_text(BAR_X, y + 36, "5H RESETS " + a["fh_rst"])
+            s.draw_text_bold(BAR_X, y + 36, "5H RESETS " + a["fh_rst"])
     return s
 
 
@@ -212,12 +212,12 @@ def render_boot() -> Screen:
 
 def main() -> None:
     demo = [
-        {"label": "PERSONAL", "fh_pct": 12, "fh_rst": "3H14M", "wk_pct": 63, "wk_rnw": "WED 8PM", "st": "ok"},
-        {"label": "WORK", "fh_pct": 47, "fh_rst": "1H02M", "wk_pct": 21, "wk_rnw": "SAT 1AM", "st": "ok"},
-        {"label": "SIDEPROJ", "fh_pct": 88, "fh_rst": "44M", "wk_pct": 97, "wk_rnw": "SUN 9PM", "st": "ok"},
+        {"label": "PERSONAL", "fh_pct": 12, "fh_rst": "3H14M", "wk_pct": 63, "wk_rnw": "WED 8PM (3D)", "st": "ok"},
+        {"label": "WORK", "fh_pct": 47, "fh_rst": "1H02M", "wk_pct": 21, "wk_rnw": "SAT 1AM (6D)", "st": "ok"},
+        {"label": "SIDEPROJ", "fh_pct": 88, "fh_rst": "44M", "wk_pct": 97, "wk_rnw": "SUN 9PM (7H)", "st": "ok"},
     ]
     states = [
-        {"label": "PERSONAL", "fh_pct": 12, "fh_rst": "3H14M", "wk_pct": 63, "wk_rnw": "WED 8PM", "st": "ok"},
+        {"label": "PERSONAL", "fh_pct": 12, "fh_rst": "3H14M", "wk_pct": 63, "wk_rnw": "WED 8PM (3D)", "st": "ok"},
         {"label": "EXPIRED", "fh_pct": -1, "fh_rst": "", "wk_pct": -1, "wk_rnw": "", "st": "a"},
         {"label": "GLITCHY", "fh_pct": 55, "fh_rst": "2H30M", "wk_pct": -1, "wk_rnw": "", "st": "d"},
     ]

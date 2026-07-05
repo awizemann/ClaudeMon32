@@ -32,14 +32,25 @@ def fmt_countdown(resets_at: datetime | None, now: datetime) -> str:
     return f"{mins}M"
 
 
-def fmt_renewal(resets_at: datetime | None) -> str:
-    """Human-readable weekly renewal in local time, e.g. "WED 8PM"."""
+def fmt_renewal(resets_at: datetime | None, now: datetime) -> str:
+    """Weekly renewal in local time plus time remaining, e.g. "WED 8PM (3D)".
+
+    The suffix counts down to the renewal: hours when under a day away,
+    days otherwise. Omitted when the renewal is unknown or already past.
+    """
     if resets_at is None:
         return ""
     local = resets_at.astimezone()
     hour = local.strftime("%I").lstrip("0")
     ampm = "AM" if local.hour < 12 else "PM"
-    return f"{local.strftime('%a').upper()} {hour}{ampm}"
+    base = f"{local.strftime('%a').upper()} {hour}{ampm}"
+    delta = (resets_at - now).total_seconds()
+    if delta <= 0:
+        return base
+    hours = int(delta // 3600)
+    if hours < 24:
+        return f"{base} ({hours}H)"
+    return f"{base} ({hours // 24}D)"
 
 
 def _pct_or_unknown(w: WindowUsage) -> int:
@@ -55,7 +66,7 @@ def to_device_payload(snapshots: list[AccountUsage], now: datetime) -> dict:
                 "fh_pct": _pct_or_unknown(snap.five_hour),
                 "fh_rst": fmt_countdown(snap.five_hour.resets_at, now),
                 "wk_pct": _pct_or_unknown(snap.week),
-                "wk_rnw": fmt_renewal(snap.week.resets_at),
+                "wk_rnw": fmt_renewal(snap.week.resets_at, now),
                 "st": snap.state.value,
             }
         )

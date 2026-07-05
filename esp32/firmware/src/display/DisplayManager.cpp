@@ -631,15 +631,16 @@ void DisplayManager::renderUsageScreen(bool stale)
     clear();
 
     // --- Header: title left, updated-at (or STALE) right, underline ---
-    drawText(2, 3, "CLAUDEMON", 1);
+    // Drawn bold so the app name and time read clearly at a glance.
+    drawTextBold(2, 3, "CLAUDEMON", 1);
     if (stale) {
         const char* warn = "STALE";
         int16_t wx = DISPLAY_WIDTH - 4 - textWidth(warn, 1);
         drawRect(wx - 3, 0, textWidth(warn, 1) + 6, 13);
-        drawText(wx, 3, warn, 1);
+        drawTextBold(wx, 3, warn, 1);
     } else if (_usage.updatedAt.length() > 0) {
-        drawText(DISPLAY_WIDTH - 2 - textWidth(_usage.updatedAt.c_str(), 1), 3,
-                 _usage.updatedAt.c_str(), 1);
+        drawTextBold(DISPLAY_WIDTH - 2 - textWidth(_usage.updatedAt.c_str(), 1) - 1, 3,
+                     _usage.updatedAt.c_str(), 1);
     }
     drawLine(0, 13, DISPLAY_WIDTH - 1, 13);
 
@@ -685,10 +686,11 @@ void DisplayManager::renderUsageScreen(bool stale)
         drawUsageGauge(y + 11, "5H", acct.fiveHourPct);
         drawUsageGauge(y + 24, "WK", acct.weekPct);
 
-        // 5-hour reset countdown (weekly renewal lives on the title line)
+        // 5-hour reset countdown (weekly renewal lives on the title line),
+        // bold so it reads clearly under the progress bars.
         if (showResetLine && acct.fiveHourReset.length() > 0) {
             String line = "5H RESETS " + acct.fiveHourReset;
-            drawText(USAGE_BAR_X, y + 36, line.c_str(), 1);
+            drawTextBold(USAGE_BAR_X, y + 36, line.c_str(), 1);
         }
     }
 
