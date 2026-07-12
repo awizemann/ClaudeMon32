@@ -10,9 +10,11 @@
 #define LV_COLOR_DEPTH 16          // RGB565, matches the ST7262 panel
 #define LV_COLOR_16_SWAP 0         // set to 1 if colors render byte-swapped
 
-// LVGL's own heap. Draw buffers are allocated separately in PSRAM by the board
-// layer; this pool is just for widget objects/styles.
-#define LV_MEM_SIZE (64U * 1024U)
+// LVGL's own heap (internal RAM — kept OUT of PSRAM so it doesn't contend with
+// the panel's continuous framebuffer DMA). Draw buffers live in PSRAM via the
+// board layer. The UI builds only the visible screen at a time (see showScreen),
+// so one screen's object tree must fit here with margin.
+#define LV_MEM_SIZE (96U * 1024U)
 
 #define LV_TICK_CUSTOM 0           // we feed ticks via lv_tick_inc() in board layer
 #define LV_DPI_DEF 130

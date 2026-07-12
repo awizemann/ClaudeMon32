@@ -67,6 +67,7 @@ static int       s_cfPage   = 0;
 static bool      s_live     = true;
 static int32_t   s_clock    = -1;                 // ticking seconds-since-midnight
 static int32_t   s_fhSec[MAX_ACCOUNTS] = {-1,-1,-1};  // ticking seconds-to-reset
+static bool      s_dirty[SC_COUNT] = {true, true, true, true, true};  // per-screen: not currently built
 
 // ----------------------------------------------------------------- helpers
 
@@ -286,11 +287,46 @@ static lv_obj_t* rlabel(lv_obj_t* parent, const char* text, lv_color_t col,
 // ----------------------------------------------------------------- navigation
 
 static void applyChrome();
+static void fillHome();
+static void fillAnthropic();
+static void fillCloudflare();
+static void fillPaddle();
+static void fillGithub();
 
+static void buildScreen(int s) {
+    switch (s) {
+        case SC_HOME:       fillHome();       break;
+        case SC_ANTHROPIC:  fillAnthropic();  break;
+        case SC_CLOUDFLARE: fillCloudflare(); break;
+        case SC_PADDLE:     fillPaddle();     break;
+        case SC_GITHUB:     fillGithub();     break;
+        default: break;
+    }
+}
+
+// Only ONE screen's object tree lives at a time. Building all five fully-
+// populated screens in a single ui_update() exhausts LVGL's heap and crashes in
+// lv_label_create (null deref, seen on the demo payload). So we free every
+// non-active screen and (re)build the target lazily on navigation — peak object
+// count stays ~one screen, which also cuts rebuild time and jitter.
 static void showScreen(int s) {
     if (s < 0) s = 0;
     if (s >= SC_COUNT) s = SC_COUNT - 1;
+
+    for (int k = 0; k < SC_COUNT; k++) {
+        if (k != s && !s_dirty[k]) {
+            // Anthropic's reset labels are live-tick handles into this tree —
+            // null them before freeing so the 1 Hz timer can't touch dead memory.
+            if (k == SC_ANTHROPIC)
+                for (size_t i = 0; i < MAX_ACCOUNTS; i++) s_resetLbl[i] = nullptr;
+            lv_obj_clean(s_screen[k]);
+            s_dirty[k] = true;
+        }
+    }
+
     s_active = s;
+    if (s_haveData && s_dirty[s]) { buildScreen(s); s_dirty[s] = false; }
+
     for (int k = 0; k < SC_COUNT; k++) {
         if (k == s) lv_obj_clear_flag(s_screen[k], LV_OBJ_FLAG_HIDDEN);
         else        lv_obj_add_flag(s_screen[k], LV_OBJ_FLAG_HIDDEN);
@@ -1112,20 +1148,17 @@ void ui_update(const Dashboard& d) {
     for (size_t i = 0; i < MAX_ACCOUNTS; i++)
         s_fhSec[i] = (i < d.accounts.size()) ? d.accounts[i].fhSec : -1;
 
-    // Header clock/date (both variants) from the seed + host date.
+    // Header clock/date (built once in the chrome, updated in place).
     char cbuf[8]; fmtClock(s_clock, cbuf, sizeof(cbuf));
     lv_label_set_text(s_homeClock, cbuf);
     lv_label_set_text(s_pageClock, cbuf);
     lv_label_set_text(s_homeDate, d.date.length() ? d.date.c_str() : "");
 
-    // Repaint every screen (instant swaps; only one visible).
-    fillHome();
-    fillAnthropic();
-    fillCloudflare();
-    fillPaddle();
-    fillGithub();
-
-    showScreen(s_active);   // re-apply visibility + chrome after rebuild
+    // New data invalidates every screen. Rebuild only the visible one now; the
+    // rest rebuild lazily when navigated to, so LVGL's heap only ever holds one
+    // screen's objects (building all five at once overflows it and crashes).
+    for (int i = 0; i < SC_COUNT; i++) s_dirty[i] = true;
+    showScreen(s_active);
 }
 
 void ui_tick_1hz() {
