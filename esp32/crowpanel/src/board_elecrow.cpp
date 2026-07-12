@@ -67,11 +67,15 @@ public:
             cfg.pin_vsync   = GPIO_NUM_41;
             cfg.pin_hsync   = GPIO_NUM_40;
             cfg.pin_pclk    = GPIO_NUM_39;
-            // 16 MHz pixel clock (down from the demo's 21 MHz). On the stock 80 MHz
-            // PSRAM this Arduino core uses, the LCD DMA starves reading the PSRAM
-            // framebuffer at 21 MHz and the panel twitches; 16 MHz cuts that read
-            // bandwidth ~25%. If the image looks less crisp/wavy, nudge back up.
-            cfg.freq_write  = 16000000;
+            // 12 MHz pixel clock (down from the demo's 21 MHz, then 16 MHz). On the
+            // stock 80 MHz PSRAM this Arduino core uses, the LCD DMA starves reading
+            // the PSRAM framebuffer at higher clocks and the panel twitches — seen as
+            // a brief horizontal shift-right-then-back, worse when the CPU also hits
+            // PSRAM (e.g. the 1 Hz clock redraw). 12 MHz gives the scan more headroom
+            // (~816x496 total / 12 MHz ≈ 30 fps, still flicker-free for static UI).
+            // If it looks less crisp, nudge up; if it still twitches, try 10 MHz or
+            // raise PSRAM to 120 MHz. See the jitter-tuning task.
+            cfg.freq_write  = 12000000;
 
             cfg.hsync_polarity    = 0;
             cfg.hsync_front_porch = 8;
