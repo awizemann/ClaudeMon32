@@ -396,12 +396,19 @@ static void buildHeaders(lv_obj_t* scr) {
     lv_obj_set_style_pad_ver(s_pill, 6, 0);
     s_pillDot = dot(s_pill, COL_GOOD, 7);
     s_pillTxt = line(s_pill, "all clear", COL_TEXT, F14);
+    // Keep the pill text on one line — inside a SIZE_CONTENT flex the default
+    // WRAP mode could break "1 critical" across two lines and clip it to "ical".
+    lv_label_set_long_mode(s_pillTxt, LV_LABEL_LONG_CLIP);
 
+    // Fixed-width clock column so the SIZE_CONTENT header can't collapse or
+    // overlap it (which was hiding the clock and squeezing the pill).
     lv_obj_t* clockcol = flexBox(right, LV_FLEX_FLOW_COLUMN, 0);
-    lv_obj_set_size(clockcol, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(clockcol, 96, LV_SIZE_CONTENT);
     lv_obj_set_flex_align(clockcol, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     s_homeClock = line(clockcol, "--:--", COL_TEXT, F20);
     s_homeDate  = line(clockcol, "", COL_FAINT, F14);
+    lv_label_set_long_mode(s_homeClock, LV_LABEL_LONG_CLIP);
+    lv_label_set_long_mode(s_homeDate, LV_LABEL_LONG_CLIP);
 
     // --- Page variant ---
     s_hdrPage = flexBox(scr, LV_FLEX_FLOW_ROW, 12);
@@ -464,7 +471,7 @@ static void applyChrome() {
         // Cloudflare's subtitle carries a live site count; others are static.
         if (s_active == SC_CLOUDFLARE) {
             char buf[48];
-            snprintf(buf, sizeof(buf), "%d sites · combined analytics", (int)s_data.sites.size());
+            snprintf(buf, sizeof(buf), "%d sites - combined analytics", (int)s_data.sites.size());
             lv_label_set_text(s_pageSub, buf);
         } else {
             lv_label_set_text(s_pageSub, kSubtitle[s_active]);
@@ -624,7 +631,7 @@ static void fillHome() {
         if (peak >= 0) snprintf(big, sizeof(big), "%d%%", peak);
         else           snprintf(big, sizeof(big), "--");
         const char* nm = s_data.accounts.empty() ? "" : s_data.accounts[peakIdx].label.c_str();
-        snprintf(label, sizeof(label), "%s · peak 5h window", nm);
+        snprintf(label, sizeof(label), "%s - peak 5h window", nm);
         snprintf(sub, sizeof(sub), "%d Max accounts", (int)s_data.accounts.size());
         char st = (peak >= 80) ? 'g' : 'o';
         const std::vector<uint8_t>& spk = s_data.accounts.empty() ?
@@ -635,11 +642,11 @@ static void fillHome() {
     {
         char sub[48];
         if (s_data.cfDown > 0)
-            snprintf(sub, sizeof(sub), "%d sites · %d down", (int)s_data.sites.size(), s_data.cfDown);
+            snprintf(sub, sizeof(sub), "%d sites - %d down", (int)s_data.sites.size(), s_data.cfDown);
         else if (s_data.cfDegraded > 0)
-            snprintf(sub, sizeof(sub), "%d sites · %d degraded", (int)s_data.sites.size(), s_data.cfDegraded);
+            snprintf(sub, sizeof(sub), "%d sites - %d degraded", (int)s_data.sites.size(), s_data.cfDegraded);
         else
-            snprintf(sub, sizeof(sub), "%d sites · all up", (int)s_data.sites.size());
+            snprintf(sub, sizeof(sub), "%d sites - all up", (int)s_data.sites.size());
         char st = s_data.cfDown > 0 ? 'x' : (s_data.cfDegraded > 0 ? 'g' : 'o');
         // Use the first site's spark as the tile trend (host order = config order).
         const std::vector<uint8_t>& spk = s_data.sites.empty() ?
@@ -651,7 +658,7 @@ static void fillHome() {
     // --- Paddle tile: revenue today, MoM sub ---
     {
         char sub[48];
-        snprintf(sub, sizeof(sub), "%d apps · %s MoM",
+        snprintf(sub, sizeof(sub), "%d apps - %s MoM",
                  (int)s_data.products.size(),
                  s_data.paddleTotals.mom.length() ? s_data.paddleTotals.mom.c_str() : "0%");
         const std::vector<uint8_t>& spk = s_data.products.empty() ?
@@ -774,7 +781,7 @@ static void fillAnthropic() {
     lv_obj_t* ah = flexBox(act, LV_FLEX_FLOW_ROW, 0);
     lv_obj_set_size(ah, lv_pct(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_align(ah, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    line(ah, "ACTIVITY · messages / hour", COL_MUTED, F14);
+    line(ah, "ACTIVITY - messages / hour", COL_MUTED, F14);
     // "Today <n>": sum the per-account message counts that parse as plain ints
     // (host formats compact ones like "1.2K"; those we can't sum, so we skip the
     // figure entirely rather than show a wrong total).
@@ -829,7 +836,7 @@ static void fillCloudflare() {
     char cbuf[8];
     if (s_data.cfTotals.cache >= 0) snprintf(cbuf, sizeof(cbuf), "%d%%", s_data.cfTotals.cache);
     else                            snprintf(cbuf, sizeof(cbuf), "--");
-    statTile(strip, "Requests · today", s_data.cfTotals.req.c_str(), COL_TEXT);
+    statTile(strip, "Requests - today", s_data.cfTotals.req.c_str(), COL_TEXT);
     statTile(strip, "Bandwidth", s_data.cfTotals.bw.c_str(), COL_TEXT);
     statTile(strip, "Threats blocked", s_data.cfTotals.threats.c_str(), COL_AMBER);
     statTile(strip, "Cache hit ratio", cbuf, COL_GOOD);
@@ -934,16 +941,16 @@ static void fillPaddle() {
     // Totals strip: revenue today, revenue month, combined sales/customers + MoM.
     lv_obj_t* strip = flexBox(page, LV_FLEX_FLOW_ROW, 10);
     lv_obj_set_size(strip, lv_pct(100), LV_SIZE_CONTENT);
-    statTile(strip, "Revenue · today", s_data.paddleTotals.revToday.c_str(), COL_GOOD);
-    statTile(strip, "Revenue · month", s_data.paddleTotals.revMonth.c_str(), COL_TEXT);
-    // Combined tile: "<sales> sales · <custs> customers" / "+12% MoM".
+    statTile(strip, "Revenue - today", s_data.paddleTotals.revToday.c_str(), COL_GOOD);
+    statTile(strip, "Revenue - month", s_data.paddleTotals.revMonth.c_str(), COL_TEXT);
+    // Combined tile: "<sales> sales -<custs> customers" / "+12% MoM".
     {
         lv_obj_t* t = well(strip, 12);
         lv_obj_set_style_pad_all(t, 12, 0);
         lv_obj_set_style_pad_row(t, 4, 0);
         lv_obj_set_flex_grow(t, 1);
         char cap[64];
-        snprintf(cap, sizeof(cap), "%s sales · %s customers",
+        snprintf(cap, sizeof(cap), "%s sales - %s customers",
                  s_data.paddleTotals.sales.length() ? s_data.paddleTotals.sales.c_str() : "--",
                  s_data.paddleTotals.custs.length() ? s_data.paddleTotals.custs.c_str() : "--");
         microLabel(t, cap, COL_MUTED);
@@ -983,7 +990,7 @@ static void fillPaddle() {
 
         line(c, p.name.c_str(), COL_TEXT, F20);
         char sub[48];
-        snprintf(sub, sizeof(sub), "macOS · %s", p.cat.length() ? p.cat.c_str() : "App");
+        snprintf(sub, sizeof(sub), "macOS - %s", p.cat.length() ? p.cat.c_str() : "App");
         line(c, sub, COL_FAINT, F14);
 
         // Three mini-stats.
@@ -1045,7 +1052,7 @@ static void fillGithub() {
         lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
         lv_obj_set_style_border_width(row, 1, 0);
 
-        // Left cell: lang dot + name over "owner · lang".
+        // Left cell: lang dot + name over "owner - lang".
         lv_color_t lcol = COL_MUTED;
         if (r.lcol.length() == 7 && r.lcol[0] == '#') {
             long v = strtol(r.lcol.c_str() + 1, nullptr, 16);
@@ -1057,7 +1064,7 @@ static void fillGithub() {
         lv_obj_set_height(left, LV_SIZE_CONTENT);
         line(left, r.name.c_str(), COL_TEXT, F16);
         char meta[64];
-        snprintf(meta, sizeof(meta), "%s · %s",
+        snprintf(meta, sizeof(meta), "%s - %s",
                  r.owner.length() ? r.owner.c_str() : "?",
                  r.lang.length() ? r.lang.c_str() : "—");
         line(left, meta, COL_FAINT, F14);
