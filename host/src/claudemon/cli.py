@@ -11,6 +11,7 @@ import sys
 import webbrowser
 
 from . import (
+    admin,
     cloudflare,
     collect,
     config as configmod,
@@ -387,6 +388,11 @@ def _push_payload(payload: dict, port: str | None = None) -> int:
     return 1
 
 
+def cmd_admin(args: argparse.Namespace) -> int:
+    admin.serve(host=args.host, port=args.port)
+    return 0
+
+
 def cmd_run(_args: argparse.Namespace) -> int:
     daemon.run_loop()
     return 0
@@ -481,6 +487,18 @@ def main() -> None:
         "pins the CrowPanel when the e-paper board is also connected. Default: auto-detect.",
     )
     p.set_defaults(func=cmd_dashboard)
+
+    p = sub.add_parser("admin", help="serve the web admin console on the LAN")
+    p.add_argument(
+        "--port", type=int, default=admin.DEFAULT_PORT,
+        help=f"port to bind (default: {admin.DEFAULT_PORT})",
+    )
+    p.add_argument(
+        "--host", default=admin.DEFAULT_HOST,
+        help=f"bind address (default: {admin.DEFAULT_HOST} — reachable on the LAN; "
+        "use 127.0.0.1 to restrict to this machine)",
+    )
+    p.set_defaults(func=cmd_admin)
 
     p = sub.add_parser("run", help="poll/push loop (used by the launchd agent)")
     p.add_argument("--foreground", action="store_true", help="log to stderr instead of the log file")

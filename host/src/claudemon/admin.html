@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClaudeMon Admin</title>
+<style>
+  /* Palette + type tokens from the design handoff (README "Design Tokens"). */
+  :root {
+    --bg: #0B0F14; --tile: #161C24; --sunk: #0E141B; --border: #202834;
+    --text: #E6EDF3; --muted: #8B98A5; --faint: #6B7885; --track: #2A3441;
+    --accent: #D08770; --good: #8FBF7F; --blue: #6AA0D8; --amber: #E0B25A; --red: #BF616A;
+    --checkbox-off: #3A4552;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px; -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums lining-nums;
+    display: flex; min-height: 100%;
+  }
+  /* ---- Sidebar (206px, #0E141B, right border) ---- */
+  .sidebar {
+    width: 206px; flex: 0 0 206px; background: var(--sunk);
+    border-right: 1px solid var(--border); padding: 20px 0; min-height: 100vh;
+    position: sticky; top: 0; align-self: flex-start;
+  }
+  .brand { padding: 0 20px 2px; font-size: 18px; font-weight: 700; color: var(--accent); }
+  .brand-sub { padding: 0 20px 22px; font-size: 12px; color: var(--faint);
+    letter-spacing: .04em; }
+  .nav-item {
+    display: block; width: 100%; text-align: left; border: 0; background: transparent;
+    color: var(--muted); font: inherit; font-size: 15px; cursor: pointer;
+    padding: 12px 20px; position: relative;
+  }
+  .nav-item.active { background: var(--tile); color: var(--accent); }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--accent);
+  }
+  /* ---- Main panel ---- */
+  .main { flex: 1; padding: 24px 32px 60px; max-width: 900px; overflow-x: hidden; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+  h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
+  .desc { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+  .card {
+    background: var(--sunk); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 16px;
+  }
+  .card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .card-title { font-size: 17px; font-weight: 600; }
+  .micro { font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--faint); font-weight: 600; }
+  /* pills */
+  .pill {
+    font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  }
+  .pill.on  { color: var(--good); background: rgba(143,191,127,.14); }
+  .pill.off { color: var(--red);  background: rgba(191,97,106,.14); }
+  .spacer { flex: 1; }
+  /* token field */
+  .token-row { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+  input.token {
+    flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+    background: var(--tile); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 11px; min-width: 0;
+  }
+  input.token::placeholder { color: var(--faint); }
+  button.btn {
+    font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: var(--bg); border: 0; border-radius: 8px;
+    padding: 9px 16px;
+  }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  button.btn.ghost { background: var(--tile); color: var(--text);
+    border: 1px solid var(--border); }
+  .note { font-size: 12px; color: var(--faint); margin-top: 10px; }
+  /* checkbox list (Displays) */
+  .items { display: flex; flex-direction: column; }
+  .item {
+    display: flex; align-items: center; gap: 12px; padding: 11px 2px;
+    border-bottom: 1px solid var(--tile); cursor: pointer;
+  }
+  .item:last-child { border-bottom: 0; }
+  .box {
+    width: 20px; height: 20px; flex: 0 0 20px; border-radius: 6px;
+    border: 1.5px solid var(--checkbox-off); display: grid; place-items: center;
+    color: var(--bg); font-size: 13px; font-weight: 700;
+  }
+  .item.checked .box { background: var(--accent); border-color: var(--accent); }
+  .item .box::after { content: "✓"; visibility: hidden; }
+  .item.checked .box::after { visibility: visible; }
+  .item-name { font-size: 16px; }
+  .item-sub { color: var(--faint); font-size: 12px; margin-left: 6px; }
+  .empty { color: var(--faint); font-size: 14px; padding: 8px 0; }
+  /* sliders + toggles (Alerts / Device) */
+  .row { display: flex; align-items: center; gap: 14px; }
+  .row .label { font-size: 16px; }
+  .row .val { color: var(--accent); font-weight: 700; font-size: 16px; min-width: 52px;
+    text-align: right; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .toggle {
+    width: 44px; height: 26px; border-radius: 999px; background: var(--track);
+    border: 0; position: relative; cursor: pointer; flex: 0 0 44px;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px;
+    border-radius: 999px; background: #fff; transition: none;
+  }
+  .toggle.on::after { left: 20px; }
+  .static-tile {
+    background: var(--tile); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; margin-top: 12px;
+  }
+  .static-tile .k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--faint); }
+  .static-tile .v { font-size: 15px; margin-top: 3px; }
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--tile); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 18px; border-radius: 8px; font-size: 14px; opacity: 0;
+    pointer-events: none; transition: opacity .15s;
+  }
+  #toast.show { opacity: 1; }
+  #toast.err { border-color: var(--red); color: var(--red); }
+  @media (max-width: 640px) {
+    body { flex-direction: column; }
+    .sidebar { width: 100%; flex-basis: auto; min-height: auto; position: static;
+      display: flex; flex-wrap: wrap; padding: 12px; }
+    .brand, .brand-sub { width: 100%; padding: 0 8px; }
+    .brand-sub { padding-bottom: 10px; }
+    .nav-item { width: auto; padding: 8px 12px; }
+    .nav-item.active::before { display: none; }
+    .main { padding: 18px; }
+  }
+</style>
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="brand">ClaudeMon</div>
+    <div class="brand-sub">Admin console</div>
+    <button class="nav-item active" data-tab="sources">Sources</button>
+    <button class="nav-item" data-tab="displays">Displays</button>
+    <button class="nav-item" data-tab="alerts">Alerts</button>
+    <button class="nav-item" data-tab="device">Device</button>
+  </nav>
+
+  <main class="main">
+    <section class="tab active" id="tab-sources">
+      <h1>Data sources</h1>
+      <p class="desc">Connect each service's API token. Tokens are stored in the macOS
+        Keychain on the host and are never shown here once saved.</p>
+      <div id="sources-cards"></div>
+    </section>
+
+    <section class="tab" id="tab-displays">
+      <h1>Displays</h1>
+      <p class="desc">Pick which discovered items appear on the device. All boxes checked
+        shows everything (up to the screen limit); uncheck to hide.</p>
+      <div id="displays-cards"></div>
+    </section>
+
+    <section class="tab" id="tab-alerts">
+      <h1>Alerts</h1>
+      <p class="desc">Tune which conditions raise an alert on the device.</p>
+      <div class="card">
+        <div class="card-head"><span class="card-title">Claude usage threshold</span></div>
+        <div class="row">
+          <span class="label">Warn at</span>
+          <input type="range" id="usage_threshold" min="50" max="100" step="1">
+          <span class="val" id="usage_threshold_val">80%</span>
+        </div>
+        <p class="note">A 5-hour-window usage at or above this raises a WARNING.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="card-title">Alert when a site goes offline</span>
+          <span class="spacer"></span>
+          <button class="toggle" id="alert_down" aria-label="toggle site-down alerts"></button>
+        </div>
+        <p class="note">Raises a CRITICAL alert when a shown Cloudflare site is down.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="card-title">Alert on 4xx / 5xx spikes</span>
+          <span class="spacer"></span>
+          <button class="toggle" id="alert_4xx" aria-label="toggle 4xx/5xx alerts"></button>
+        </div>
+        <p class="note">Raises a WARNING when a shown site is degraded.</p>
+      </div>
+      <button class="btn" id="save-alerts">Save alerts</button>
+    </section>
+
+    <section class="tab" id="tab-device">
+      <h1>Device</h1>
+      <p class="desc">Panel settings pushed to the device on the next refresh cycle.</p>
+      <div class="card">
+        <div class="card-head"><span class="card-title">Brightness</span></div>
+        <div class="row">
+          <span class="label">Level</span>
+          <input type="range" id="brightness" min="15" max="100" step="1">
+          <span class="val" id="brightness_val">100</span>
+        </div>
+        <p class="note">Applies after a firmware update carries the brightness field to the
+          panel backlight; the setting is stored now.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="card-title">Refresh interval</span></div>
+        <div class="row">
+          <span class="label">Every</span>
+          <input type="range" id="refresh" min="15" max="300" step="15">
+          <span class="val" id="refresh_val">60s</span>
+        </div>
+        <p class="note">Drives the host daemon's poll/push loop.</p>
+      </div>
+      <div class="static-tile"><div class="k">Theme</div><div class="v">Dark · locked</div></div>
+      <button class="btn" id="save-device" style="margin-top:16px">Save device</button>
+    </section>
+  </main>
+
+  <div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (sel, root = document) => root.querySelector(sel);
+let STATE = null;
+// Pending selection edits per service, applied on Save. null = "show all".
+const shownEdit = { cloudflare: undefined, github: undefined, paddle: undefined };
+
+const SOURCES = [
+  { key: "anthropic",  name: "Anthropic",  oauth: true },
+  { key: "cloudflare", name: "Cloudflare" },
+  { key: "paddle",     name: "Paddle" },
+  { key: "github",     name: "GitHub" },
+];
+
+function toast(msg, isErr) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "show" + (isErr ? " err" : "");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.className = ""; }, 2200);
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || ("HTTP " + res.status));
+  return body;
+}
+
+async function loadState() {
+  STATE = await api("/api/state");
+  shownEdit.cloudflare = undefined;
+  shownEdit.github = undefined;
+  shownEdit.paddle = undefined;
+  renderSources();
+  renderDisplays();
+  renderSettings();
+}
+
+/* ---- Sources tab ---- */
+function renderSources() {
+  const host = $("#sources-cards");
+  host.innerHTML = "";
+  for (const src of SOURCES) {
+    const card = document.createElement("div");
+    card.className = "card";
+    if (src.oauth) {
+      const connected = (STATE.anthropic.accounts || []).length > 0;
+      const n = STATE.anthropic.accounts.length;
+      card.innerHTML = `
+        <div class="card-head">
+          <span class="card-title">${src.name}</span>
+          <span class="pill ${connected ? "on" : "off"}">${connected ? "Connected" : "Disconnected"}</span>
+          <span class="spacer"></span>
+        </div>
+        <div class="micro">OAuth login</div>
+        <p class="note">${connected
+          ? n + " account" + (n === 1 ? "" : "s") + " signed in: " + STATE.anthropic.accounts.map(esc).join(", ")
+          : "No accounts."} Managed with <code>claudemon login</code> on the host (read-only here).</p>`;
+    } else {
+      const s = STATE.sources[src.key];
+      card.innerHTML = `
+        <div class="card-head">
+          <span class="card-title">${src.name}</span>
+          <span class="pill ${s.connected ? "on" : "off"}">${s.connected ? "Connected" : "Disconnected"}</span>
+          <span class="spacer"></span>
+        </div>
+        <div class="micro">API token</div>
+        <div class="token-row">
+          <input class="token" type="password" autocomplete="off" spellcheck="false"
+                 placeholder="${s.connected ? "•••••••••• (stored — paste to replace)" : "Paste token"}">
+          <button class="btn">Save</button>
+          <button class="btn ghost">Clear</button>
+        </div>`;
+      const input = $(".token", card);
+      $(".btn:not(.ghost)", card).onclick = () => saveToken(src.key, input.value);
+      $(".btn.ghost", card).onclick = () => saveToken(src.key, "");
+    }
+    host.appendChild(card);
+  }
+}
+
+async function saveToken(service, token) {
+  try {
+    await api("/api/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ service, token }),
+    });
+    toast(token.trim() ? service + " token saved" : service + " token cleared");
+    await loadState();
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ---- Displays tab ---- */
+function currentShown(key) {
+  // undefined sentinel = untouched -> fall back to server value (null | list).
+  return shownEdit[key] === undefined ? STATE.sources[key].shown : shownEdit[key];
+}
+
+function isChecked(key, id, shown) {
+  // shown === null means "show all" -> every discovered item is checked.
+  return shown === null ? true : shown.includes(id);
+}
+
+function renderDisplays() {
+  const host = $("#displays-cards");
+  host.innerHTML = "";
+  const specs = [
+    { key: "cloudflare", name: "Cloudflare sites", idOf: z => z.id, label: z => z.name },
+    { key: "github",     name: "GitHub repos",     idOf: r => r,     label: r => r },
+    { key: "paddle",     name: "Paddle products",  idOf: p => p,     label: p => p },
+  ];
+  for (const spec of specs) {
+    const s = STATE.sources[spec.key];
+    const card = document.createElement("div");
+    card.className = "card";
+    if (!s.connected) {
+      card.innerHTML = `<div class="card-head"><span class="card-title">${spec.name}</span>
+        <span class="pill off">Disconnected</span></div>
+        <div class="empty">Connect a token on the Sources tab to discover items.</div>`;
+      host.appendChild(card);
+      continue;
+    }
+    const items = s.discovered || [];
+    const shown = currentShown(spec.key);
+    let rows = "";
+    if (items.length === 0) {
+      rows = `<div class="empty">No items discovered under this token.</div>`;
+    }
+    card.innerHTML = `
+      <div class="card-head"><span class="card-title">${spec.name}</span>
+        <span class="micro">${items.length} discovered</span><span class="spacer"></span>
+        <button class="btn ghost sel-all">All</button>
+        <button class="btn ghost sel-none">None</button></div>
+      <div class="items"></div>
+      <button class="btn save" style="margin-top:14px">Save selection</button>`;
+    const list = $(".items", card);
+    list.innerHTML = rows;
+    for (const it of items) {
+      const id = spec.idOf(it), label = spec.label(it);
+      const row = document.createElement("div");
+      row.className = "item" + (isChecked(spec.key, id, shown) ? " checked" : "");
+      const sub = (label !== id) ? `<span class="item-sub">${esc(id)}</span>` : "";
+      row.innerHTML = `<div class="box"></div><span class="item-name">${esc(label)}${sub}</span>`;
+      row.onclick = () => toggleItem(spec.key, id, items.map(spec.idOf), row);
+      list.appendChild(row);
+    }
+    $(".sel-all", card).onclick = () => { shownEdit[spec.key] = null; renderDisplays(); };
+    $(".sel-none", card).onclick = () => { shownEdit[spec.key] = []; renderDisplays(); };
+    $(".save", card).onclick = () => saveSelection(spec.key);
+    host.appendChild(card);
+  }
+}
+
+function toggleItem(key, id, allIds, row) {
+  // Materialise the tri-state into an explicit list before mutating, so the
+  // first click off an "all" state produces the right subset.
+  let shown = currentShown(key);
+  if (shown === null) shown = allIds.slice();      // "all" -> concrete full list
+  else shown = shown.slice();
+  const i = shown.indexOf(id);
+  if (i >= 0) shown.splice(i, 1); else shown.push(id);
+  // Collapse a full selection back to null ("all") so it persists as show-all.
+  if (allIds.every(x => shown.includes(x))) shown = null;
+  shownEdit[key] = shown;
+  renderDisplays();
+}
+
+async function saveSelection(key) {
+  try {
+    const payload = {};
+    payload[key + "_shown"] = currentShown(key);   // null | list
+    await api("/api/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast(key + " selection saved");
+    await loadState();
+    showTab("displays");
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ---- Alerts + Device tabs ---- */
+function renderSettings() {
+  const st = STATE.settings;
+  setSlider("usage_threshold", st.usage_threshold, v => v + "%");
+  setSlider("brightness", st.brightness, v => "" + v);
+  setSlider("refresh", st.refresh, v => v + "s");
+  setToggle("alert_down", st.alert_down);
+  setToggle("alert_4xx", st.alert_4xx);
+}
+
+function setSlider(id, value, fmt) {
+  const el = $("#" + id);
+  el.value = value;
+  const out = $("#" + id + "_val");
+  const upd = () => { out.textContent = fmt(el.value); };
+  el.oninput = upd;
+  upd();
+}
+
+function setToggle(id, on) {
+  const el = $("#" + id);
+  el.classList.toggle("on", !!on);
+  el.onclick = () => el.classList.toggle("on");
+}
+
+async function saveSettings(fields) {
+  const settings = {};
+  for (const f of fields) {
+    const el = $("#" + f);
+    settings[f] = (el.type === "range") ? parseInt(el.value, 10) : el.classList.contains("on");
+  }
+  try {
+    await api("/api/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings }),
+    });
+    toast("Settings saved");
+    await loadState();
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ---- tabs ---- */
+function showTab(tab) {
+  for (const b of document.querySelectorAll(".nav-item"))
+    b.classList.toggle("active", b.dataset.tab === tab);
+  for (const s of document.querySelectorAll(".tab"))
+    s.classList.toggle("active", s.id === "tab-" + tab);
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+document.querySelectorAll(".nav-item").forEach(b =>
+  b.onclick = () => showTab(b.dataset.tab));
+$("#save-alerts").onclick = () => saveSettings(["usage_threshold", "alert_down", "alert_4xx"]);
+$("#save-device").onclick = () => saveSettings(["brightness", "refresh"]);
+
+loadState().catch(e => toast("Failed to load: " + e.message, true));
+</script>
+</body>
+</html>
