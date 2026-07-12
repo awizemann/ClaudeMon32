@@ -70,7 +70,7 @@ class AccountUsage:
     week: WindowUsage = field(default_factory=WindowUsage)
     state: AccountState = AccountState.OK
     fetched_at: datetime | None = None
-    plan: str | None = None            # subscription tier chip, e.g. "Max 5×" / "Max 20×"
+    plan: str | None = None            # subscription tier chip, e.g. "Max 5x" / "Max 20x"
     messages: int | None = None        # messages sent in the current 5h window
     # Per-hour message counts for the last 24 hours, oldest first (24 entries).
     # Empty when unknown; the host normalizes this to 0-100 for the device.
