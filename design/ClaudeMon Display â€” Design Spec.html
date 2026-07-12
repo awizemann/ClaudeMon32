@@ -1,0 +1,279 @@
+<title>ClaudeMon Display — Design Spec</title>
+<style>
+  :root{
+    --ground:#eceff3; --panel:#ffffff; --panel-2:#f4f7fa; --line:#d6dee7;
+    --text:#16202b; --muted:#5c6773; --faint:#8a95a1;
+    --accent:#c2653f; --accent-soft:rgba(194,101,63,.12);
+    --good:#3f7d47; --warn:#9c6f16; --crit:#b03a44;
+    --shadow:0 1px 2px rgba(20,30,42,.06),0 8px 24px rgba(20,30,42,.06);
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    /* the device's own palette, mirrored here for swatches */
+    --d-bg:#0b0f14; --d-tile:#161c24; --d-sunk:#0e141b; --d-text:#e6edf3;
+    --d-muted:#8b98a5; --d-accent:#d08770; --d-warn:#bf616a; --d-track:#2a3441;
+    --d-good:#8fbf7f; --d-blue:#6aa0d8; --d-amber:#e0b25a; --d-red:#bf616a;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#0a0e13; --panel:#141b23; --panel-2:#1a222c; --line:#28323e;
+      --text:#e7edf3; --muted:#93a0ad; --faint:#6b7885;
+      --accent:#d98a67; --accent-soft:rgba(217,138,103,.14);
+      --good:#8fbf7f; --warn:#e0b25a; --crit:#d0727b;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#eceff3; --panel:#ffffff; --panel-2:#f4f7fa; --line:#d6dee7;
+    --text:#16202b; --muted:#5c6773; --faint:#8a95a1; --accent:#c2653f;
+    --accent-soft:rgba(194,101,63,.12); --good:#3f7d47; --warn:#9c6f16; --crit:#b03a44;
+    --shadow:0 1px 2px rgba(20,30,42,.06),0 8px 24px rgba(20,30,42,.06);
+  }
+  :root[data-theme="dark"]{
+    --ground:#0a0e13; --panel:#141b23; --panel-2:#1a222c; --line:#28323e;
+    --text:#e7edf3; --muted:#93a0ad; --faint:#6b7885; --accent:#d98a67;
+    --accent-soft:rgba(217,138,103,.14); --good:#8fbf7f; --warn:#e0b25a; --crit:#d0727b;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--ground);color:var(--text);font-family:var(--sans);
+    line-height:1.55;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;}
+  .wrap{max-width:1080px;margin:0 auto;padding:clamp(26px,5vw,64px) clamp(18px,4vw,40px);}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 12px;}
+  h1{font-size:clamp(28px,4.5vw,44px);line-height:1.05;letter-spacing:-.02em;margin:0 0 14px;
+    text-wrap:balance;font-weight:680;}
+  .lede{font-size:clamp(15px,2vw,18px);color:var(--muted);max-width:66ch;margin:0;}
+  .kbd{font-family:var(--mono);font-size:.92em;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;color:var(--text);}
+
+  section{margin-top:clamp(40px,6vw,68px);}
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);margin:0 0 6px;font-weight:600;}
+  .sec-title{font-size:clamp(21px,3vw,28px);letter-spacing:-.015em;margin:0 0 8px;font-weight:640;text-wrap:balance;}
+  .sec-note{margin:0 0 22px;color:var(--muted);max-width:66ch;}
+
+  .strip{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px;}
+  .chip{font-family:var(--mono);font-size:12.5px;color:var(--text);background:var(--panel);
+    border:1px solid var(--line);border-radius:999px;padding:7px 13px;white-space:nowrap;}
+  .chip b{color:var(--accent);font-weight:600;}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);}
+  .pad{padding:20px;}
+
+  /* device frame */
+  .devwrap{display:grid;grid-template-columns:auto 1fr;gap:26px;align-items:start;}
+  @media (max-width:800px){.devwrap{grid-template-columns:1fr;}}
+  .device{width:400px;max-width:100%;aspect-ratio:800/480;background:var(--d-bg);border-radius:10px;
+    border:1px solid var(--line);padding:5px;display:flex;flex-direction:column;gap:4px;position:relative;
+    box-shadow:var(--shadow);}
+  .zhead{height:15%;background:rgba(208,135,112,.14);border:1px dashed rgba(208,135,112,.5);border-radius:5px;
+    display:flex;align-items:center;justify-content:space-between;padding:0 8px;}
+  .zbody{flex:1;background:rgba(139,152,165,.08);border:1px dashed rgba(139,152,165,.4);border-radius:5px;
+    display:flex;align-items:center;justify-content:center;}
+  .ztabs{height:17%;background:rgba(208,135,112,.1);border:1px dashed rgba(208,135,112,.4);border-radius:5px;
+    display:flex;gap:3px;padding:3px;}
+  .ztabs i{flex:1;border-radius:3px;background:rgba(139,152,165,.14);}
+  .ztabs i:first-child{background:rgba(208,135,112,.4);}
+  .zlab{font-family:var(--mono);font-size:9px;color:var(--d-muted);}
+  .zlab.acc{color:var(--d-accent);}
+  .dims{display:flex;flex-direction:column;gap:12px;}
+  .dims dl{margin:0;display:grid;grid-template-columns:150px 1fr;gap:4px 14px;font-size:14px;}
+  .dims dt{font-family:var(--mono);font-size:11.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;align-self:center;}
+  .dims dd{margin:0;color:var(--text);}
+  .dims dd b{font-family:var(--mono);color:var(--accent);font-weight:600;}
+
+  /* palette */
+  .swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}
+  .sw{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel);}
+  .sw .chipc{height:56px;}
+  .sw .meta{padding:9px 11px;}
+  .sw .role{font-size:13px;font-weight:600;margin:0 0 2px;}
+  .sw .hex{font-family:var(--mono);font-size:12px;color:var(--muted);margin:0;text-transform:uppercase;}
+
+  /* type scale */
+  .type{display:flex;flex-direction:column;gap:2px;}
+  .trow{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:baseline;padding:12px 0;border-top:1px solid var(--line);}
+  .trow:first-child{border-top:none;}
+  .trow .spec{font-family:var(--mono);font-size:12px;color:var(--faint);}
+  .trow .spec b{color:var(--accent);display:block;font-size:15px;margin-bottom:2px;}
+  .samp{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .s28{font-size:28px;font-weight:680;letter-spacing:-.01em;}
+  .s20{font-size:20px;font-weight:640;}
+  .s16{font-size:16px;}
+  .s14{font-size:14px;color:var(--muted);}
+
+  /* generic two-col lists */
+  .cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;}
+  .item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 16px;box-shadow:var(--shadow);}
+  .item h4{margin:0 0 5px;font-size:15.5px;font-weight:640;display:flex;align-items:center;gap:8px;}
+  .item h4 .g{font-family:var(--mono);font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;background:var(--accent-soft);color:var(--accent);}
+  .item p{margin:0;font-size:13.5px;color:var(--muted);}
+  .item p b{color:var(--text);font-weight:600;}
+
+  .do-dont{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media (max-width:640px){.do-dont{grid-template-columns:1fr;}}
+  .dd{border-radius:12px;padding:16px 18px;border:1px solid var(--line);}
+  .dd.do{background:color-mix(in srgb,var(--good) 8%,var(--panel));border-color:color-mix(in srgb,var(--good) 30%,var(--line));}
+  .dd.dont{background:color-mix(in srgb,var(--crit) 8%,var(--panel));border-color:color-mix(in srgb,var(--crit) 30%,var(--line));}
+  .dd h4{margin:0 0 10px;font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;}
+  .dd.do h4{color:var(--good);} .dd.dont h4{color:var(--crit);}
+  .dd ul{margin:0;padding-left:18px;} .dd li{font-size:14px;margin:6px 0;color:var(--text);}
+
+  .icons{display:flex;flex-wrap:wrap;gap:7px;}
+  .icons span{font-family:var(--mono);font-size:12px;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:6px;padding:4px 9px;color:var(--text);}
+
+  .note{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));
+    border-radius:12px;padding:15px 17px;margin-top:16px;font-size:14.5px;}
+  .note b{color:var(--accent);}
+  footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px;}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Design Spec · CrowPanel Advance 5.0 · LVGL 8</p>
+    <h1>ClaudeMon display — design against these numbers</h1>
+    <p class="lede">Everything here maps 1:1 to what the firmware can render. Design at <b>800×480</b>, use these exact colors and font sizes, keep touch targets and motion within the limits, and the screens drop straight into the LVGL build with no translation loss.</p>
+    <div class="strip">
+      <span class="chip"><b>800×480</b> px landscape</span>
+      <span class="chip">5.0" IPS · <b>~127 ppi</b></span>
+      <span class="chip"><b>RGB565</b> 16-bit color</span>
+      <span class="chip">capacitive · <b>single touch</b></span>
+      <span class="chip">400 cd/m²</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Canvas</h2>
+    <p class="sec-title">The frame &amp; its zones</p>
+    <p class="sec-note">Design the full 800×480 rectangle. The current chrome reserves a header and a bottom tab bar; the content canvas is what's left. You can redesign the chrome too — these are the live measurements, not hard rules.</p>
+    <div class="devwrap">
+      <div class="device" aria-hidden="true">
+        <div class="zhead"><span class="zlab acc">HEADER · page title</span><span class="zlab">clock</span></div>
+        <div class="zbody"><span class="zlab">CONTENT CANVAS · ≈ 780 × 366 px</span></div>
+        <div class="ztabs"><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="dims">
+        <dl>
+          <dt>Full canvas</dt><dd><b>800 × 480</b> px, landscape, no notch/cutout</dd>
+          <dt>Outer margin</dt><dd><b>10 px</b> on all edges (safe padding)</dd>
+          <dt>Header</dt><dd><b>36 px</b> tall — page title (left) + clock (right)</dd>
+          <dt>Tab bar</dt><dd><b>42 px</b> tall — 4 equal tabs, active = accent top-border</dd>
+          <dt>Content canvas</dt><dd><b>≈ 780 × 366 px</b> between header and tabs</dd>
+          <dt>Section gap</dt><dd><b>8 px</b> vertical between chrome and content</dd>
+          <dt>Card</dt><dd>radius <b>8 px</b>, padding <b>13 px</b>, fill <span class="kbd">#161c24</span></dd>
+          <dt>Stat tile</dt><dd>radius <b>6 px</b>, padding <b>9 px</b>, fill <span class="kbd">#0e141b</span></dd>
+          <dt>Card / tile gap</dt><dd><b>8–12 px</b> between siblings</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Color</h2>
+    <p class="sec-title">Palette — dark, always-on</p>
+    <p class="sec-note">The device runs a single dark theme (it's an always-on desk display; dark saves the panel and reads well at 400 nits). Use these exact hex values. Semantic colors (good/blue/amber/red) are for status only — they are not accents.</p>
+    <div class="swatches">
+      <div class="sw"><div class="chipc" style="background:#0b0f14"></div><div class="meta"><p class="role">Background</p><p class="hex">#0B0F14</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#161c24"></div><div class="meta"><p class="role">Card fill</p><p class="hex">#161C24</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#0e141b"></div><div class="meta"><p class="role">Stat tile (sunk)</p><p class="hex">#0E141B</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#e6edf3"></div><div class="meta"><p class="role">Text</p><p class="hex">#E6EDF3</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#8b98a5"></div><div class="meta"><p class="role">Muted text</p><p class="hex">#8B98A5</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#d08770"></div><div class="meta"><p class="role">Accent (terracotta)</p><p class="hex">#D08770</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#2a3441"></div><div class="meta"><p class="role">Track / divider</p><p class="hex">#2A3441</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#8fbf7f"></div><div class="meta"><p class="role">Good · 2xx</p><p class="hex">#8FBF7F</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#6aa0d8"></div><div class="meta"><p class="role">Info · 3xx</p><p class="hex">#6AA0D8</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#e0b25a"></div><div class="meta"><p class="role">Warn · 4xx</p><p class="hex">#E0B25A</p></div></div>
+      <div class="sw"><div class="chipc" style="background:#bf616a"></div><div class="meta"><p class="role">Critical · 5xx</p><p class="hex">#BF616A</p></div></div>
+      <div class="sw"><div class="chipc" style="background:linear-gradient(90deg,#0b0f14,#d08770)"></div><div class="meta"><p class="role">Gradients</p><p class="hex">avoid — see note</p></div></div>
+    </div>
+    <div class="note"><b>RGB565 caveat:</b> the panel stores 5 bits red, 6 green, 5 blue — only 32 / 64 / 32 levels per channel, not 256. Subtle shades collapse and smooth gradients <b>band visibly</b>. Design with flat fills and clearly-separated tones; avoid low-contrast gradients, soft glows, and near-identical grays. If a value looks slightly off on-device vs. your mockup, that's the 565 rounding.</div>
+  </section>
+
+  <section>
+    <h2>Type</h2>
+    <p class="sec-title">Montserrat, four sizes</p>
+    <p class="sec-note">The build ships <b>Montserrat</b> at these sizes (LVGL bitmap fonts, anti-aliased). Design with this scale. Each extra size or weight costs flash to add, so treat the scale as fixed unless we plan for it; other sizes/weights/a second family are possible but must be requested up front.</p>
+    <div class="type">
+      <div class="trow"><div class="spec"><b>28 px</b>Bold</div><div class="samp s28">CLAUDEMON · page titles</div></div>
+      <div class="trow"><div class="spec"><b>20 px</b>Semibold</div><div class="samp s20">PERSONAL · card headings</div></div>
+      <div class="trow"><div class="spec"><b>16 px</b>Regular</div><div class="samp s16">5H 62% · body &amp; stat values</div></div>
+      <div class="trow"><div class="spec"><b>14 px</b>Regular</div><div class="samp s14">RESETS 2H13M · captions, tab labels, legends</div></div>
+    </div>
+    <div class="note">Digits are proportional in Montserrat; for columns of numbers that must line up, keep them in their own tiles/labels rather than one right-aligned string. Uppercase captions get a little letter-spacing on-device.</div>
+  </section>
+
+  <section>
+    <h2>Components</h2>
+    <p class="sec-title">The vocabulary I can render faithfully</p>
+    <p class="sec-note">Build screens out of these. Anything here maps to a native LVGL object; anything not here needs a conversation about cost (see the note at the end).</p>
+    <div class="cols">
+      <div class="item"><h4>Card <span class="g">container</span></h4><p>Rounded panel, fill <b>#161C24</b>, radius 8, pad 13. The primary grouping block.</p></div>
+      <div class="item"><h4>Stat tile <span class="g">container</span></h4><p>Sunken tile: big value (16–20px) over a 14px caption. The density workhorse. 2- or 4-across.</p></div>
+      <div class="item"><h4>Progress bar <span class="g">bar</span></h4><p>Horizontal 0–100 fill, ~14px tall, track <b>#2A3441</b>. Turns <b>red ≥ 90%</b>. Used for usage / cache.</p></div>
+      <div class="item"><h4>Sparkline <span class="g">chart</span></h4><p>Minimalist line chart, ~44px tall, no axes/grid/markers, 2px accent line. Feed it 2–32 points, each 0–100.</p></div>
+      <div class="item"><h4>Segmented bar <span class="g">flex</span></h4><p>A single bar split into colored proportions (e.g. status codes). Any number of segments, widths as %.</p></div>
+      <div class="item"><h4>Pill <span class="g">label</span></h4><p>Small colored text chip with an icon, e.g. a CI status. Cheap — it's just a styled label.</p></div>
+      <div class="item"><h4>Tab bar <span class="g">flex</span></h4><p>Equal-width tabs, active = accent text + 2px accent top-border. Instant page switch on tap.</p></div>
+      <div class="item"><h4>Icons <span class="g">symbol font</span></h4><p>Built-in LVGL glyph set (below) — free to use. Custom icons need conversion to a font/image asset.</p></div>
+      <div class="item"><h4>Text <span class="g">label</span></h4><p>Any of the 4 sizes, any palette color, single or multi-line, left / center aligned.</p></div>
+    </div>
+    <h2 style="margin-top:26px">Built-in icons (no asset cost)</h2>
+    <div class="icons">
+      <span>✓ OK</span><span>✕ CLOSE</span><span>⟳ REFRESH</span><span>⚠ WARNING</span><span>↑ UPLOAD</span><span>↓ DOWNLOAD</span>
+      <span>WIFI</span><span>BATTERY</span><span>BELL</span><span>SETTINGS</span><span>HOME</span><span>GPS</span>
+      <span>CHARGE</span><span>USB</span><span>SD_CARD</span><span>EYE</span><span>›/‹ chevrons</span><span>PLAY / PAUSE</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Interaction</h2>
+    <p class="sec-title">Touch — single finger only</p>
+    <div class="cols">
+      <div class="item"><h4>Tap</h4><p>Primary input. Keep interactive targets <b>≥ 44×44 px</b>. Buttons should look tappable (fill/border).</p></div>
+      <div class="item"><h4>Horizontal swipe</h4><p>Flips pages <b>instantly</b> (no animated slide — see performance). Left = next, right = prev.</p></div>
+      <div class="item"><h4>No multi-touch</h4><p>The controller is <b>single-touch</b>: no pinch, no two-finger gestures. Don't design for them.</p></div>
+      <div class="item"><h4>Feedback</h4><p>State changes should be instant + visible (color/opacity), not animated transitions.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Performance</h2>
+    <p class="sec-title">What keeps it smooth</p>
+    <p class="sec-note">The RGB panel continuously scans its framebuffer out of PSRAM, which is bandwidth-tight. Big animated repaints starve that scan and stutter — so the visual language is <b>static and instant</b>, not animated.</p>
+    <div class="do-dont">
+      <div class="dd do"><h4>Do</h4><ul>
+        <li>Flat fills, crisp edges, static layouts</li>
+        <li>Instant page/state switches (show/hide)</li>
+        <li>Small charts &amp; bars that update on data pushes (~every few min)</li>
+        <li>Dark backgrounds; reserve bright fills for small accents</li>
+        <li>Design for a screen that may auto-dim at night</li>
+      </ul></div>
+      <div class="dd dont"><h4>Avoid</h4><ul>
+        <li>Full-screen slide / fade / zoom transitions</li>
+        <li>Anything re-painting large areas every frame</li>
+        <li>Smooth gradients &amp; soft glows (band in RGB565)</li>
+        <li>Continuous motion, spinners over big regions, video</li>
+        <li>Large solid blocks that change color frequently</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Handoff</h2>
+    <p class="sec-title">When you send me a screen</p>
+    <p class="sec-note">To translate a mockup into firmware with zero guesswork, give me:</p>
+    <div class="cols">
+      <div class="item"><h4>Exact canvas</h4><p>Designed at <b>800×480</b> (or a clean multiple). Note the margins if they differ from 10px.</p></div>
+      <div class="item"><h4>Colors as hex</h4><p>Ideally from the palette above. New colors are fine — just give hex; I'll flag any that RGB565 will shift.</p></div>
+      <div class="item"><h4>Type from the scale</h4><p>Label each text as 14 / 16 / 20 / 28. If you need another size or a second font, say so — it's a flash-budget decision.</p></div>
+      <div class="item"><h4>Which data drives it</h4><p>Mark what's live (Claude / Cloudflare / GitHub fields) vs. static chrome, and what each tap does.</p></div>
+    </div>
+    <div class="note"><b>Next after design:</b> the on-device <b>web admin</b> for configuration — the panel hosts a local setup page (WiFi, tokens, sources, brightness) you reach from a browser. We'll plan that once the screen designs are settled.</div>
+  </section>
+
+  <footer>
+    Reference values pulled from the live firmware (<span class="kbd">UI.cpp</span>, <span class="kbd">board_elecrow.cpp</span>) as of this build. Panel: Elecrow CrowPanel Advance 5.0", ESP32-S3, ST7262 RGB @ 16 MHz pixel clock, GT911 touch, LVGL 8.
+  </footer>
+</div>

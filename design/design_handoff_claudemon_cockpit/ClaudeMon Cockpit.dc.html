@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;background:#0c0f13;-webkit-font-smoothing:antialiased;}
+  *{box-sizing:border-box;}
+  a{color:#d08770;} a:hover{color:#e0b25a;}
+  @keyframes cmpulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+  ::-webkit-scrollbar{width:6px;height:6px;}
+  ::-webkit-scrollbar-thumb{background:#2a3441;border-radius:3px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:32px 24px;font-family:Montserrat,sans-serif;background:radial-gradient(circle at 50% 30%,#141a20,#0a0d11 70%);">
+
+  <div style="display:flex;align-items:center;gap:4px;background:#0e141b;border:1px solid #202834;border-radius:12px;padding:4px;">
+    <div onClick="{{ setDevice }}" style="padding:8px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;color:{{ devFg }};background:{{ devBg }};" style-active="opacity:.8">Device Screen</div>
+    <div onClick="{{ setAdmin }}" style="padding:8px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;color:{{ admFg }};background:{{ admBg }};" style-active="opacity:.8">Web Admin</div>
+  </div>
+
+  <sc-if value="{{ isDevice }}" hint-placeholder-val="{{ true }}">
+  <div style="background:#05080b;border-radius:24px;padding:20px 20px 24px;border:1px solid #1a222c;box-shadow:0 30px 70px rgba(0,0,0,.6);">
+    <div style="width:800px;height:480px;background:#0b0f14;border-radius:7px;overflow:hidden;display:flex;flex-direction:column;position:relative;color:#e6edf3;font-variant-numeric:tabular-nums;box-shadow:inset 0 0 0 1px #161c24;">
+
+      <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+      <div style="height:52px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #161c24;">
+        <div style="font-size:26px;font-weight:700;letter-spacing:.01em;color:{{ accent }};">CLAUDEMON</div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;background:#161c24;border:1px solid #202834;">
+            <span style="width:9px;height:9px;border-radius:50%;background:{{ statusPill.color }};"></span>
+            <span style="font-size:14px;font-weight:600;">{{ statusPill.text }}</span>
+          </div>
+          <div style="text-align:right;line-height:1.1;">
+            <div style="font-size:18px;font-weight:600;">{{ clock }}</div>
+            <div style="font-size:11px;color:#6b7885;">{{ dateStr }}</div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ isPage }}" hint-placeholder-val="{{ false }}">
+      <div style="height:52px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 12px;border-bottom:1px solid #161c24;">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+          <div onClick="{{ goHome }}" style="width:44px;height:40px;border-radius:10px;background:#161c24;border:1px solid #202834;display:flex;align-items:center;justify-content:center;cursor:pointer;color:{{ accent }};font-size:24px;font-weight:600;flex:0 0 auto;" style-active="opacity:.6">‹</div>
+          <div style="min-width:0;">
+            <div style="font-size:24px;font-weight:700;line-height:1.05;">{{ title }}</div>
+            <div style="font-size:13px;color:#8b98a5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ subtitle }}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex:0 0 auto;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="width:7px;height:7px;border-radius:50%;background:{{ liveColor }};animation:cmpulse 2s infinite;"></span>
+            <span style="font-size:11px;letter-spacing:.12em;color:{{ liveColor }};font-weight:600;">{{ liveText }}</span>
+          </div>
+          <div style="font-size:18px;font-weight:600;">{{ clock }}</div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;display:flex;gap:10px;padding:11px;min-height:0;">
+        <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;min-width:0;">
+          <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="4">
+            <div onClick="{{ t.open }}" style="background:#161c24;border:1px solid #202834;border-radius:14px;padding:14px 15px;display:flex;flex-direction:column;cursor:pointer;min-width:0;color:{{ t.spColor }};" style-active="border-color:#3a4552">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="width:9px;height:9px;border-radius:50%;background:{{ t.status }};"></span>
+                <span style="font-size:19px;font-weight:600;color:#e6edf3;">{{ t.name }}</span>
+              </div>
+              <div style="font-size:32px;font-weight:700;color:#e6edf3;letter-spacing:-.01em;line-height:1;margin-top:11px;">{{ t.big }}</div>
+              <div style="font-size:13px;color:#8b98a5;margin-top:4px;">{{ t.label }}</div>
+              <div style="flex:1;"></div>
+              <div style="display:flex;align-items:flex-end;gap:2px;height:28px;margin-top:8px;">
+                <sc-for list="{{ t.spark }}" as="b" hint-placeholder-count="16">
+                  <span style="flex:1;height:{{ b.h }}%;background:currentColor;opacity:.5;border-radius:1px;"></span>
+                </sc-for>
+              </div>
+              <div style="font-size:12px;color:#6b7885;margin-top:7px;">{{ t.sub }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="width:220px;flex:0 0 auto;background:#0e141b;border:1px solid #202834;border-radius:14px;display:flex;flex-direction:column;min-height:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 14px 9px;">
+            <span style="font-size:12px;letter-spacing:.12em;color:#6b7885;font-weight:600;">ALERTS</span>
+            <span style="font-size:12px;font-weight:700;color:#0b0f14;background:{{ alertBadgeColor }};border-radius:999px;padding:1px 9px;">{{ alertCount }}</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:0 10px 10px;display:flex;flex-direction:column;gap:7px;">
+            <sc-for list="{{ alerts }}" as="a" hint-placeholder-count="4">
+              <div onClick="{{ a.open }}" style="background:#161c24;border:1px solid #202834;border-left:3px solid {{ a.color }};border-radius:8px;padding:9px 11px;cursor:pointer;" style-active="opacity:.7">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:11px;font-weight:700;letter-spacing:.06em;color:{{ a.color }};">{{ a.tag }}</span>
+                  <span style="font-size:11px;color:#6b7885;">{{ a.ago }}</span>
+                </div>
+                <div style="font-size:13px;color:#e6edf3;margin-top:3px;line-height:1.3;">{{ a.msg }}</div>
+                <div style="font-size:11px;color:#8b98a5;margin-top:2px;">{{ a.source }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ isAnthropic }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px;padding:11px;min-height:0;">
+        <div style="display:flex;gap:10px;flex:1;min-height:0;">
+          <sc-for list="{{ anAccounts }}" as="a" hint-placeholder-count="3">
+            <div style="flex:1;background:#161c24;border:1px solid #202834;border-radius:14px;padding:14px;display:flex;flex-direction:column;min-width:0;">
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:19px;font-weight:600;">{{ a.name }}</span>
+                <span style="font-size:11px;font-weight:600;color:#d08770;background:rgba(208,135,112,.14);padding:2px 8px;border-radius:6px;">{{ a.plan }}</span>
+              </div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-top:16px;">
+                <span style="font-size:34px;font-weight:700;line-height:1;color:{{ a.barColor }};">{{ a.u5 }}%</span>
+                <span style="font-size:13px;color:#8b98a5;">of 5h window</span>
+              </div>
+              <div style="height:8px;background:#2a3441;border-radius:5px;margin-top:12px;overflow:hidden;">
+                <div style="height:100%;width:{{ a.u5 }}%;background:{{ a.barColor }};border-radius:5px;"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:#8b98a5;margin-top:6px;">
+                <span>Week</span><span style="color:#e6edf3;">{{ a.uw }}%</span>
+              </div>
+              <div style="height:5px;background:#2a3441;border-radius:5px;margin-top:4px;overflow:hidden;">
+                <div style="height:100%;width:{{ a.uw }}%;background:#6aa0d8;border-radius:5px;"></div>
+              </div>
+              <div style="flex:1;"></div>
+              <div style="display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid #202834;padding-top:10px;margin-top:12px;">
+                <div>
+                  <div style="font-size:11px;color:#6b7885;">RESETS IN</div>
+                  <div style="font-size:16px;font-weight:600;">{{ a.reset }}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div style="font-size:11px;color:#6b7885;">MESSAGES</div>
+                  <div style="font-size:16px;font-weight:600;">{{ a.msgs }}</div>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="flex:0 0 auto;background:#0e141b;border:1px solid #202834;border-radius:14px;padding:12px 15px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+            <span style="font-size:13px;letter-spacing:.06em;color:#8b98a5;font-weight:600;">ACTIVITY · messages / hour</span>
+            <span style="font-size:13px;color:#8b98a5;">Today <b style="color:#e6edf3;">{{ anTotal }}</b></span>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:3px;height:56px;color:#d08770;">
+            <sc-for list="{{ anActivity }}" as="b" hint-placeholder-count="24">
+              <span style="flex:1;height:{{ b.h }}%;background:currentColor;opacity:.75;border-radius:2px;"></span>
+            </sc-for>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7885;margin-top:5px;">
+            <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ isCloudflare }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px;padding:11px;min-height:0;">
+        <div style="flex:0 0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+          <sc-for list="{{ cfStats }}" as="s" hint-placeholder-count="4">
+            <div style="background:#161c24;border:1px solid #202834;border-radius:12px;padding:11px 13px;">
+              <div style="font-size:12px;color:#8b98a5;">{{ s.label }}</div>
+              <div style="font-size:24px;font-weight:700;margin-top:5px;color:{{ s.c }};">{{ s.v }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="flex:1;background:#0e141b;border:1px solid #202834;border-radius:14px;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid #202834;flex:0 0 auto;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:12px;letter-spacing:.12em;color:#6b7885;font-weight:600;">SITES</span>
+              <span style="font-size:12px;color:#8b98a5;">{{ cfShownCount }} · {{ cfLive }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div onClick="{{ cfPrev }}" style="width:34px;height:34px;border-radius:8px;background:#161c24;border:1px solid #202834;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;color:#e6edf3;" style-active="opacity:.6">‹</div>
+              <span style="font-size:13px;color:#8b98a5;min-width:44px;text-align:center;">{{ cfPageLabel }}</span>
+              <div onClick="{{ cfNext }}" style="width:34px;height:34px;border-radius:8px;background:#161c24;border:1px solid #202834;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;color:#e6edf3;" style-active="opacity:.6">›</div>
+            </div>
+          </div>
+          <div style="flex:1;overflow:auto;">
+            <sc-for list="{{ cfSites }}" as="s" hint-placeholder-count="6">
+              <div style="display:grid;grid-template-columns:14px 1fr 86px 70px 74px 96px;gap:10px;align-items:center;padding:0 14px;height:56px;border-bottom:1px solid #161c24;color:{{ s.spColor }};">
+                <span style="width:10px;height:10px;border-radius:50%;background:{{ s.color }};"></span>
+                <span style="font-size:16px;color:#e6edf3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.d }}</span>
+                <span style="font-size:15px;text-align:right;color:#e6edf3;">{{ s.req }}</span>
+                <span style="font-size:14px;text-align:right;color:#8b98a5;">{{ s.bw }}</span>
+                <div style="display:flex;align-items:flex-end;gap:1.5px;height:24px;">
+                  <sc-for list="{{ s.spark }}" as="b" hint-placeholder-count="12">
+                    <span style="flex:1;height:{{ b.h }}%;background:currentColor;opacity:.6;border-radius:1px;"></span>
+                  </sc-for>
+                </div>
+                <span style="font-size:13px;text-align:right;color:{{ s.color }};font-weight:600;">{{ s.stText }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ isPaddle }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px;padding:11px;min-height:0;">
+        <div style="flex:0 0 auto;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div style="background:#161c24;border:1px solid #202834;border-radius:12px;padding:11px 14px;">
+            <div style="font-size:12px;color:#8b98a5;">Revenue · today</div>
+            <div style="font-size:24px;font-weight:700;margin-top:4px;color:#8fbf7f;">{{ pdToday }}</div>
+          </div>
+          <div style="background:#161c24;border:1px solid #202834;border-radius:12px;padding:11px 14px;">
+            <div style="font-size:12px;color:#8b98a5;">Revenue · month</div>
+            <div style="font-size:24px;font-weight:700;margin-top:4px;">{{ pdMonth }}</div>
+          </div>
+          <div style="background:#161c24;border:1px solid #202834;border-radius:12px;padding:11px 14px;">
+            <div style="font-size:12px;color:#8b98a5;">{{ pdPurch }} sales · {{ pdCust }} customers</div>
+            <div style="font-size:24px;font-weight:700;margin-top:4px;color:#8fbf7f;">{{ pdGrowth }} MoM</div>
+          </div>
+        </div>
+        <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;min-height:0;">
+          <sc-for list="{{ pdProducts }}" as="p" hint-placeholder-count="4">
+            <div style="background:#161c24;border:1px solid #202834;border-radius:14px;padding:14px;display:flex;flex-direction:column;min-width:0;color:#8fbf7f;">
+              <div>
+                <div style="font-size:19px;font-weight:600;color:#e6edf3;">{{ p.name }}</div>
+                <div style="font-size:12px;color:#6b7885;">{{ p.sub }}</div>
+              </div>
+              <div style="display:flex;gap:18px;margin-top:14px;">
+                <div>
+                  <div style="font-size:11px;color:#6b7885;">PURCHASES</div>
+                  <div style="font-size:17px;font-weight:600;color:#e6edf3;">{{ p.purchases }}</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#6b7885;">CUSTOMERS</div>
+                  <div style="font-size:17px;font-weight:600;color:#e6edf3;">{{ p.customers }}</div>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#6b7885;">REVENUE</div>
+                  <div style="font-size:17px;font-weight:700;color:#8fbf7f;">{{ p.revenue }}</div>
+                </div>
+              </div>
+              <div style="flex:1;"></div>
+              <div style="display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:10px;">
+                <sc-for list="{{ p.spark }}" as="b" hint-placeholder-count="14">
+                  <span style="flex:1;height:{{ b.h }}%;background:currentColor;opacity:.55;border-radius:1px;"></span>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ isGithub }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px;padding:11px;min-height:0;">
+        <div style="flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+          <div style="background:#161c24;border:1px solid #202834;border-radius:12px;padding:10px 14px;">
+            <div style="font-size:12px;color:#8b98a5;">Repositories</div>
+            <div style="font-size:22px;font-weight:700;margin-top:3px;">{{ ghCount }}</div>
+          </div>
+          <div style="background:#161c24;border:1px solid #202834;border-radius:12px;padding:10px 14px;">
+            <div style="font-size:12px;color:#8b98a5;">Open issues</div>
+            <div style="font-size:22px;font-weight:700;margin-top:3px;color:#e0b25a;">{{ ghIssues }}</div>
+          </div>
+          <div style="background:#161c24;border:1px solid #202834;border-radius:12px;padding:10px 14px;">
+            <div style="font-size:12px;color:#8b98a5;">Open PRs</div>
+            <div style="font-size:22px;font-weight:700;margin-top:3px;color:#6aa0d8;">{{ ghPrs }}</div>
+          </div>
+        </div>
+        <div style="flex:1;background:#0e141b;border:1px solid #202834;border-radius:14px;overflow:auto;min-height:0;">
+          <sc-for list="{{ ghRepos }}" as="r" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:1fr 66px 78px 62px 58px;gap:10px;align-items:center;padding:0 14px;height:57px;border-bottom:1px solid #161c24;">
+              <div style="min-width:0;display:flex;align-items:center;gap:9px;">
+                <span style="width:10px;height:10px;border-radius:50%;background:{{ r.lc }};flex:0 0 auto;"></span>
+                <div style="min-width:0;">
+                  <div style="font-size:16px;color:#e6edf3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ r.name }}</div>
+                  <div style="font-size:11px;color:#6b7885;">{{ r.owner }} · {{ r.lang }}</div>
+                </div>
+              </div>
+              <span style="font-size:14px;text-align:right;color:#e0b25a;">★ {{ r.stars }}</span>
+              <span style="font-size:14px;text-align:right;color:#e6edf3;">{{ r.issues }} issues</span>
+              <span style="font-size:14px;text-align:right;color:#6aa0d8;">{{ r.prs }} PR</span>
+              <span style="font-size:13px;text-align:right;color:#6b7885;">{{ r.ago }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <div style="position:absolute;inset:0;background:#000;pointer-events:none;opacity:{{ dim }};"></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:9px;margin-top:14px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:{{ accent }};animation:cmpulse 2.4s infinite;"></span>
+      <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#5a6673;letter-spacing:.02em;">CrowPanel Advance 5.0 · 5&quot; 800×480 · LVGL 8</span>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isAdmin }}" hint-placeholder-val="{{ false }}">
+  <div style="width:940px;height:600px;background:#0b0f14;border:1px solid #202834;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 30px 70px rgba(0,0,0,.6);color:#e6edf3;">
+    <div style="height:46px;flex:0 0 auto;background:#0e141b;border-bottom:1px solid #202834;display:flex;align-items:center;gap:14px;padding:0 16px;">
+      <div style="display:flex;gap:8px;">
+        <span style="width:12px;height:12px;border-radius:50%;background:#bf616a;"></span>
+        <span style="width:12px;height:12px;border-radius:50%;background:#e0b25a;"></span>
+        <span style="width:12px;height:12px;border-radius:50%;background:#8fbf7f;"></span>
+      </div>
+      <div style="flex:1;display:flex;justify-content:center;">
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#8b98a5;background:#0b0f14;border:1px solid #202834;border-radius:8px;padding:5px 16px;">🔒 claudemon.local/admin</div>
+      </div>
+      <div style="width:56px;"></div>
+    </div>
+    <div style="flex:1;display:flex;min-height:0;">
+      <div style="width:206px;flex:0 0 auto;background:#0e141b;border-right:1px solid #202834;display:flex;flex-direction:column;padding:16px 12px;">
+        <div style="font-size:18px;font-weight:700;color:{{ accent }};padding:0 8px 4px;">ClaudeMon</div>
+        <div style="font-size:12px;color:#6b7885;padding:0 8px 16px;">Admin console</div>
+        <sc-for list="{{ adminNav }}" as="n" hint-placeholder-count="4">
+          <div onClick="{{ n.onClick }}" style="display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:9px;cursor:pointer;background:{{ n.bg }};margin-bottom:3px;" style-active="opacity:.75">
+            <span style="width:3px;height:16px;border-radius:2px;background:{{ n.bar }};"></span>
+            <span style="font-size:15px;font-weight:600;color:{{ n.fg }};">{{ n.label }}</span>
+          </div>
+        </sc-for>
+        <div style="flex:1;"></div>
+        <div style="font-size:11px;color:#5a6673;padding:0 8px;">Firmware 1.4.2 · online</div>
+      </div>
+
+      <div style="flex:1;overflow:auto;padding:26px 30px;min-width:0;">
+
+        <sc-if value="{{ isSources }}" hint-placeholder-val="{{ true }}">
+        <div style="font-size:22px;font-weight:700;margin-bottom:4px;">Data sources</div>
+        <div style="font-size:14px;color:#8b98a5;margin-bottom:22px;">API credentials for each connected service. Tokens are stored encrypted on the device.</div>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <sc-for list="{{ sources }}" as="s" hint-placeholder-count="4">
+            <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:16px 18px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <span style="font-size:17px;font-weight:600;">{{ s.name }}</span>
+                  <span style="font-size:12px;font-weight:600;color:{{ s.pillColor }};background:{{ s.pillBg }};padding:3px 10px;border-radius:6px;">{{ s.pillText }}</span>
+                </div>
+                <div onClick="{{ s.toggle }}" style="width:44px;height:26px;border-radius:999px;background:{{ s.togBg }};position:relative;cursor:pointer;transition:background .12s;flex:0 0 auto;">
+                  <span style="position:absolute;top:2px;left:{{ s.togX }};width:22px;height:22px;border-radius:50%;background:#fff;transition:left .12s;"></span>
+                </div>
+              </div>
+              <div style="font-size:12px;color:#6b7885;margin-top:14px;margin-bottom:6px;letter-spacing:.04em;">API TOKEN</div>
+              <div style="display:flex;gap:10px;">
+                <input type="text" defaultValue="{{ s.token }}" style="flex:1;background:#161c24;border:1px solid #202834;border-radius:8px;padding:10px 12px;color:#e6edf3;font-family:ui-monospace,Menlo,monospace;font-size:13px;outline:none;" />
+                <div style="padding:10px 16px;background:{{ accent }};color:#0b0f14;font-size:14px;font-weight:600;border-radius:8px;cursor:pointer;" style-active="opacity:.8">Save</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ isDisplays }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:22px;font-weight:700;margin-bottom:4px;">Displays</div>
+        <div style="font-size:14px;color:#8b98a5;margin-bottom:22px;">Enable, reorder, and choose which items appear on each page of the device.</div>
+        <div style="display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="font-size:12px;letter-spacing:.08em;color:#6b7885;font-weight:600;">PAGES · ORDER</div>
+            <sc-for list="{{ pagesAdmin }}" as="p" hint-placeholder-count="4">
+              <div onClick="{{ p.select }}" style="background:{{ p.selBg }};border:1px solid {{ p.selBorder }};border-radius:11px;padding:12px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;">
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                  <div onClick="{{ p.up }}" style="width:26px;height:20px;border-radius:5px;background:#161c24;border:1px solid #202834;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8b98a5;cursor:pointer;" style-active="opacity:.6">▲</div>
+                  <div onClick="{{ p.down }}" style="width:26px;height:20px;border-radius:5px;background:#161c24;border:1px solid #202834;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8b98a5;cursor:pointer;" style-active="opacity:.6">▼</div>
+                </div>
+                <span style="flex:1;font-size:16px;font-weight:600;">{{ p.name }}</span>
+                <div onClick="{{ p.toggle }}" style="width:44px;height:26px;border-radius:999px;background:{{ p.togBg }};position:relative;cursor:pointer;flex:0 0 auto;">
+                  <span style="position:absolute;top:2px;left:{{ p.togX }};width:22px;height:22px;border-radius:50%;background:#fff;transition:left .12s;"></span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:16px 18px;">
+            <div style="font-size:15px;font-weight:600;margin-bottom:14px;">{{ adminItemsTitle }} · items shown</div>
+            <div style="display:flex;flex-direction:column;gap:9px;max-height:340px;overflow:auto;">
+              <sc-for list="{{ adminItems }}" as="it" hint-placeholder-count="6">
+                <div onClick="{{ it.toggle }}" style="display:flex;align-items:center;gap:11px;cursor:pointer;padding:6px 4px;" style-active="opacity:.7">
+                  <span style="width:20px;height:20px;border-radius:5px;border:1.5px solid {{ it.boxBorder }};background:{{ it.boxBg }};display:flex;align-items:center;justify-content:center;font-size:13px;color:#0b0f14;font-weight:700;flex:0 0 auto;">{{ it.check }}</span>
+                  <span style="font-size:14px;color:#e6edf3;">{{ it.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ isAlertsTab }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:22px;font-weight:700;margin-bottom:4px;">Alerts</div>
+        <div style="font-size:14px;color:#8b98a5;margin-bottom:22px;">Choose the conditions that raise an alert on the device home screen.</div>
+        <div style="display:flex;flex-direction:column;gap:14px;max-width:560px;">
+          <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:15px;font-weight:600;">Claude usage threshold</span>
+              <span style="font-size:16px;font-weight:700;color:{{ accent }};">{{ settings.usageAlert }}%</span>
+            </div>
+            <div style="font-size:13px;color:#8b98a5;margin:4px 0 12px;">Warn when any account exceeds this share of its 5-hour window.</div>
+            <input type="range" min="50" max="100" step="1" value="{{ settings.usageAlert }}" onChange="{{ onUsage }}" style="width:100%;accent-color:{{ accent }};" />
+          </div>
+          <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;">
+            <div>
+              <div style="font-size:15px;font-weight:600;">Alert when a site goes offline</div>
+              <div style="font-size:13px;color:#8b98a5;margin-top:2px;">Cloudflare origin health check fails.</div>
+            </div>
+            <div onClick="{{ tSiteDown.toggle }}" style="width:44px;height:26px;border-radius:999px;background:{{ tSiteDown.bg }};position:relative;cursor:pointer;flex:0 0 auto;">
+              <span style="position:absolute;top:2px;left:{{ tSiteDown.x }};width:22px;height:22px;border-radius:50%;background:#fff;transition:left .12s;"></span>
+            </div>
+          </div>
+          <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;">
+            <div>
+              <div style="font-size:15px;font-weight:600;">Alert on 4xx / 5xx spikes</div>
+              <div style="font-size:13px;color:#8b98a5;margin-top:2px;">Error-rate crosses the rolling baseline.</div>
+            </div>
+            <div onClick="{{ tSpike.toggle }}" style="width:44px;height:26px;border-radius:999px;background:{{ tSpike.bg }};position:relative;cursor:pointer;flex:0 0 auto;">
+              <span style="position:absolute;top:2px;left:{{ tSpike.x }};width:22px;height:22px;border-radius:50%;background:#fff;transition:left .12s;"></span>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ isDeviceTab }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:22px;font-weight:700;margin-bottom:4px;">Device</div>
+        <div style="font-size:14px;color:#8b98a5;margin-bottom:22px;">Hardware and refresh settings for the panel.</div>
+        <div style="display:flex;flex-direction:column;gap:14px;max-width:560px;">
+          <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:15px;font-weight:600;">Brightness</span>
+              <span style="font-size:16px;font-weight:700;color:{{ accent }};">{{ settings.brightness }}%</span>
+            </div>
+            <div style="font-size:13px;color:#8b98a5;margin:4px 0 12px;">Dims the panel — visible live on the device screen.</div>
+            <input type="range" min="15" max="100" step="1" value="{{ settings.brightness }}" onChange="{{ onBright }}" style="width:100%;accent-color:{{ accent }};" />
+          </div>
+          <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:15px;font-weight:600;">Refresh interval</span>
+              <span style="font-size:16px;font-weight:700;color:{{ accent }};">{{ settings.refresh }}s</span>
+            </div>
+            <div style="font-size:13px;color:#8b98a5;margin:4px 0 12px;">How often the device polls each source for new data.</div>
+            <input type="range" min="15" max="300" step="15" value="{{ settings.refresh }}" onChange="{{ onRefresh }}" style="width:100%;accent-color:{{ accent }};" />
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:16px 18px;">
+              <div style="font-size:12px;color:#6b7885;letter-spacing:.04em;">THEME</div>
+              <div style="font-size:16px;font-weight:600;margin-top:4px;">Dark · locked</div>
+              <div style="font-size:12px;color:#8b98a5;margin-top:3px;">Always-on desk display.</div>
+            </div>
+            <div style="background:#0e141b;border:1px solid #202834;border-radius:12px;padding:16px 18px;">
+              <div style="font-size:12px;color:#6b7885;letter-spacing:.04em;">TIMEZONE</div>
+              <div style="font-size:16px;font-weight:600;margin-top:4px;">Europe / Zurich</div>
+              <div style="font-size:12px;color:#8b98a5;margin-top:3px;">Used for resets &amp; clock.</div>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#4b5560;text-align:center;">tap a tile to drill in · ‹ returns home · Web Admin drives what the device shows</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:720},&quot;accentColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#d08770&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;,&quot;options&quot;:[&quot;#d08770&quot;,&quot;#6aa0d8&quot;,&quot;#8fbf7f&quot;,&quot;#e0b25a&quot;]},&quot;liveData&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;startScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;Home&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;Home&quot;,&quot;Anthropic&quot;,&quot;Cloudflare&quot;,&quot;Paddle&quot;,&quot;GitHub&quot;],&quot;section&quot;:&quot;Behavior&quot;}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.load = Date.now();
+    const S=(seed,n,lo,hi)=>{const a=[];let v=(lo+hi)/2;for(let i=0;i<n;i++){v+=(Math.sin((seed+i)*1.7)+Math.cos((seed+i)*0.9))*(hi-lo)*0.16;v=Math.max(lo,Math.min(hi,v));a.push(Math.round(v));}return a;};
+    this.base={
+      anthropic:{accounts:[
+        {name:'Personal',plan:'Max 5×',u5:46,uw:61,resetMs:133*60000,msgs:128,spark:S(1,16,20,72)},
+        {name:'Work',plan:'Max 20×',u5:88,uw:74,resetMs:62*60000,msgs:412,spark:S(2,16,38,98)},
+        {name:'Studio',plan:'Max 20×',u5:22,uw:39,resetMs:228*60000,msgs:95,spark:S(3,16,10,58)},
+      ],activity:S(9,24,14,96)},
+      cloudflare:{totals:{req:'4.28M',bw:'312 GB',threats:'18.4K',cache:'94.2%'},reqBase:71400,spark:S(4,16,30,92),
+        sites:[
+          {d:'wizemann.com',req:'1.24M',bw:'88 GB',st:'up',spark:S(11,12,40,90)},
+          {d:'app.wizemann.com',req:'842K',bw:'61 GB',st:'up',spark:S(12,12,35,85)},
+          {d:'docs.wizemann.com',req:'214K',bw:'12 GB',st:'up',spark:S(13,12,20,70)},
+          {d:'blog.wizemann.com',req:'38K',bw:'3 GB',st:'degraded',spark:S(14,12,10,60)},
+          {d:'shop.wizemann.com',req:'402K',bw:'47 GB',st:'up',spark:S(15,12,30,80)},
+          {d:'api.wizemann.com',req:'980K',bw:'71 GB',st:'up',spark:S(16,12,45,95)},
+          {d:'status.wizemann.com',req:'22K',bw:'1 GB',st:'up',spark:S(17,12,10,45)},
+          {d:'cdn.wizemann.com',req:'1.90M',bw:'140 GB',st:'up',spark:S(18,12,50,98)},
+          {d:'mail.wizemann.com',req:'61K',bw:'4 GB',st:'up',spark:S(19,12,15,55)},
+          {d:'dev.wizemann.com',req:'12K',bw:'2 GB',st:'up',spark:S(20,12,8,40)},
+          {d:'legacy.wizemann.com',req:'—',bw:'0 GB',st:'down',spark:S(21,12,0,14)},
+          {d:'m.wizemann.com',req:'190K',bw:'15 GB',st:'up',spark:S(22,12,20,65)},
+        ]},
+      paddle:{today:1248,month:98720,growth:'+12%',products:[
+        {name:'PixelPeek',sub:'macOS · Screenshot',purchases:1284,customers:4102,revenue:38540,spark:S(31,14,30,80)},
+        {name:'CleanShot Pro',sub:'macOS · Utility',purchases:892,customers:2740,revenue:26180,spark:S(32,14,25,70)},
+        {name:'FocusBar',sub:'macOS · Menu bar',purchases:2410,customers:6980,revenue:19280,spark:S(33,14,40,90)},
+        {name:'SnapVault',sub:'macOS · Backup',purchases:512,customers:1190,revenue:14720,spark:S(34,14,15,55)},
+      ]},
+      github:{repos:[
+        {name:'claudemon',owner:'wizemann',stars:'342',issues:12,prs:3,lang:'C++',lc:'#8fbf7f',ago:'2h'},
+        {name:'pixelpeek',owner:'wizemann',stars:'1.2k',issues:28,prs:5,lang:'Swift',lc:'#e0b25a',ago:'4h'},
+        {name:'focusbar',owner:'wizemann',stars:'864',issues:9,prs:1,lang:'Swift',lc:'#e0b25a',ago:'1d'},
+        {name:'cf-worker-kit',owner:'wizemann',stars:'2.4k',issues:41,prs:8,lang:'TypeScript',lc:'#6aa0d8',ago:'6h'},
+        {name:'paddle-sync',owner:'wizemann',stars:'156',issues:4,prs:0,lang:'Go',lc:'#6aa0d8',ago:'3d'},
+        {name:'desk-dash',owner:'wizemann',stars:'78',issues:2,prs:1,lang:'Rust',lc:'#d08770',ago:'5h'},
+      ]},
+    };
+    const startMap={Anthropic:'anthropic',Cloudflare:'cloudflare',Paddle:'paddle',GitHub:'github'};
+    this.state={
+      screen: startMap[props.startScreen]||'home',
+      view:'device', cfPage:0, adminTab:'sources', adminPageSel:'cloudflare',
+      now:Date.now(), pulse:0,
+      pages:[{key:'anthropic',name:'Anthropic'},{key:'cloudflare',name:'Cloudflare'},{key:'paddle',name:'Paddle'},{key:'github',name:'GitHub'}],
+      enabled:{anthropic:true,cloudflare:true,paddle:true,github:true},
+      sources:[
+        {key:'anthropic',name:'Anthropic',token:'sk-ant-api03-••••4c2a',connected:true},
+        {key:'cloudflare',name:'Cloudflare',token:'cf-••••••••9f1d',connected:true},
+        {key:'paddle',name:'Paddle',token:'pdl_live_••••7b30',connected:true},
+        {key:'github',name:'GitHub',token:'ghp_••••••••e5aa',connected:false},
+      ],
+      shown:{anthropic:[true,true,true],cloudflare:[true,true,true,true,true,true,true,true,true,true,true,true],paddle:[true,true,true,true],github:[true,true,true,true,true,true]},
+      settings:{brightness:80,refresh:90,usageAlert:85,alertDown:true,alert4xx:true},
+    };
+  }
+  componentDidMount(){
+    this.t1=setInterval(()=>this.setState({now:Date.now()}),1000);
+    this.t2=setInterval(()=>{ if(this.props.liveData!==false) this.setState(s=>({pulse:s.pulse+1})); },4000);
+  }
+  componentWillUnmount(){clearInterval(this.t1);clearInterval(this.t2);}
+  go(screen){this.setState({screen});}
+  setSetting(key,val){this.setState(s=>({settings:{...s.settings,[key]:val}}));}
+  toggleSetting(key){this.setState(s=>({settings:{...s.settings,[key]:!s.settings[key]}}));}
+  togglePage(key){this.setState(s=>({enabled:{...s.enabled,[key]:!s.enabled[key]}}));}
+  movePage(key,dir){this.setState(s=>{const p=[...s.pages];const i=p.findIndex(x=>x.key===key);const j=i+dir;if(j<0||j>=p.length)return{};const tmp=p[i];p[i]=p[j];p[j]=tmp;return{pages:p};});}
+  toggleSource(key){this.setState(s=>({sources:s.sources.map(x=>x.key===key?{...x,connected:!x.connected}:x)}));}
+  toggleItem(src,idx){this.setState(s=>{const arr=[...s.shown[src]];arr[idx]=!arr[idx];return{shown:{...s.shown,[src]:arr}};});}
+  renderVals(){
+    const P=this.props, st=this.state, B=this.base;
+    const accent=P.accentColor||'#d08770';
+    const live=P.liveData!==false;
+    const C={good:'#8fbf7f',warn:'#e0b25a',crit:'#bf616a',blue:'#6aa0d8',amber:'#e0b25a',muted:'#8b98a5',faint:'#6b7885',text:'#e6edf3'};
+    const fmt=n=>Number(n).toLocaleString('en-US');
+    const money=n=>'$'+fmt(n);
+    const bars=arr=>arr.map(h=>({h}));
+    const pad=n=>String(n).padStart(2,'0');
+    const now=st.now, d=new Date(now);
+    const clock=pad(d.getHours())+':'+pad(d.getMinutes());
+    const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dateStr=days[d.getDay()]+' '+d.getDate()+' '+mon[d.getMonth()];
+    const sh=st.shown, en=st.enabled, SET=st.settings;
+    const anAcc=B.anthropic.accounts.filter((a,i)=>sh.anthropic[i]);
+    const cfSitesAll=B.cloudflare.sites.filter((s,i)=>sh.cloudflare[i]);
+    const pdProd=B.paddle.products.filter((p,i)=>sh.paddle[i]);
+    const ghRepo=B.github.repos.filter((r,i)=>sh.github[i]);
+
+    const alerts=[]; const agos=['3m','6m','14m','22m','41m','1h','2h'];
+    cfSitesAll.forEach(s=>{ if(s.st==='down') alerts.push({level:'crit',tag:'CRITICAL',color:C.crit,source:'Cloudflare',msg:s.d+' is offline',screen:'cloudflare'}); });
+    cfSitesAll.forEach(s=>{ if(s.st==='degraded'&&SET.alert4xx) alerts.push({level:'warn',tag:'WARNING',color:C.warn,source:'Cloudflare',msg:s.d+' degraded · 4xx spike',screen:'cloudflare'}); });
+    anAcc.forEach(a=>{ if(a.u5>=SET.usageAlert) alerts.push({level:'warn',tag:'WARNING',color:C.warn,source:'Anthropic',msg:a.name+' at '+a.u5+'% of 5h limit',screen:'anthropic'}); });
+    if(sh.github[3]) alerts.push({level:'info',tag:'INFO',color:C.blue,source:'GitHub',msg:'cf-worker-kit · +6 new issues today',screen:'github'});
+    const rank={crit:0,warn:1,info:2};
+    alerts.sort((a,b)=>rank[a.level]-rank[b.level]);
+    alerts.forEach((a,i)=>{ a.ago=agos[i%agos.length]; a.open=()=>this.go(a.screen); });
+    const critCount=alerts.filter(a=>a.level==='crit').length;
+    const warnCount=alerts.filter(a=>a.level==='warn').length;
+    const alertBadgeColor=critCount?C.crit:warnCount?C.warn:C.good;
+    const statusPill=critCount?{text:critCount+' critical',color:C.crit}:warnCount?{text:warnCount+(warnCount>1?' warnings':' warning'),color:C.warn}:{text:'All healthy',color:C.good};
+
+    const tileFor={
+      anthropic:()=>{ const peak=anAcc.reduce((m,a)=>(a.u5>(m?m.u5:-1)?a:m),null)||{u5:0,name:'—'}; return {name:'Anthropic',big:peak.u5+'%',label:peak.name+' · peak 5h window',sub:anAcc.length+' Max accounts',status:peak.u5>=SET.usageAlert?C.warn:C.good,spColor:'#d08770',spark:bars(B.anthropic.activity.slice(8))}; },
+      cloudflare:()=>{ const down=cfSitesAll.filter(s=>s.st==='down').length,deg=cfSitesAll.filter(s=>s.st==='degraded').length; return {name:'Cloudflare',big:B.cloudflare.totals.req,label:'requests today',sub:cfSitesAll.length+' sites'+(down?' · '+down+' down':deg?' · '+deg+' degraded':' · all up'),status:down?C.crit:deg?C.warn:C.good,spColor:C.blue,spark:bars(B.cloudflare.spark)}; },
+      paddle:()=>({name:'Paddle',big:money(B.paddle.today),label:'revenue today',sub:pdProd.length+' apps · '+B.paddle.growth+' MoM',status:C.good,spColor:C.good,spark:bars(B.paddle.products[2].spark)}),
+      github:()=>{ const iss=ghRepo.reduce((s,r)=>s+r.issues,0); return {name:'GitHub',big:iss+' open',label:'issues across repos',sub:ghRepo.length+' repos',status:C.good,spColor:C.amber,spark:bars(B.anthropic.activity.slice(6,22))}; },
+    };
+    const tiles=st.pages.filter(p=>en[p.key]).map(p=>{ const t=tileFor[p.key](); t.open=()=>this.go(p.key); return t; });
+
+    const anAccounts=anAcc.map(a=>{ const rem=((a.resetMs-(now-this.load))%a.resetMs+a.resetMs)%a.resetMs; const mins=Math.floor(rem/60000); const h=Math.floor(mins/60),m=mins%60; const barColor=a.u5>=SET.usageAlert?C.warn:(a.u5>=60?C.amber:C.good); return {name:a.name,plan:a.plan,u5:a.u5,uw:a.uw,reset:h+'h '+pad(m)+'m',msgs:fmt(a.msgs),barColor,spark:bars(a.spark)}; });
+    const anActivity=bars(B.anthropic.activity);
+    const anTotal=fmt(anAcc.reduce((s,a)=>s+a.msgs,0));
+
+    const perPage=6; const totalPages=Math.max(1,Math.ceil(cfSitesAll.length/perPage)); const cfPage=Math.min(st.cfPage,totalPages-1);
+    const scol={up:C.good,degraded:C.warn,down:C.crit}, stxt={up:'Operational',degraded:'Degraded',down:'Offline'};
+    const cfSites=cfSitesAll.slice(cfPage*perPage,cfPage*perPage+perPage).map(s=>({d:s.d,req:s.req,bw:s.bw,color:scol[s.st],stText:stxt[s.st],spColor:scol[s.st],spark:bars(s.spark)}));
+    const wob=live?Math.round(Math.sin(st.pulse*1.3)*900):0;
+    const cfLive=fmt(B.cloudflare.reqBase+wob)+' req/min';
+    const cfStats=[{label:'Requests · today',v:B.cloudflare.totals.req,c:C.text},{label:'Bandwidth',v:B.cloudflare.totals.bw,c:C.text},{label:'Threats blocked',v:B.cloudflare.totals.threats,c:C.warn},{label:'Cache hit ratio',v:B.cloudflare.totals.cache,c:C.good}];
+
+    const pdProducts=pdProd.map(p=>({name:p.name,sub:p.sub,purchases:fmt(p.purchases),customers:fmt(p.customers),revenue:money(p.revenue),spark:bars(p.spark)}));
+    const pdPurch=fmt(pdProd.reduce((s,p)=>s+p.purchases,0)), pdCust=fmt(pdProd.reduce((s,p)=>s+p.customers,0));
+
+    const ghRepos=ghRepo.map(r=>({name:r.name,owner:r.owner,stars:r.stars,issues:r.issues,prs:r.prs,lang:r.lang,lc:r.lc,ago:r.ago}));
+    const ghIssues=ghRepo.reduce((s,r)=>s+r.issues,0), ghPrs=ghRepo.reduce((s,r)=>s+r.prs,0);
+
+    const titles={anthropic:{t:'Anthropic',s:anAcc.length+' Claude Max accounts'},cloudflare:{t:'Cloudflare',s:cfSitesAll.length+' sites · combined analytics'},paddle:{t:'Paddle',s:pdProd.length+' macOS products'},github:{t:'GitHub',s:ghRepo.length+' repositories'}};
+    const ti=titles[st.screen]||{t:'',s:''};
+
+    const tog=on=>({bg:on?accent:'#2a3441',x:on?'20px':'2px'});
+    const adminNav=[['sources','Sources'],['displays','Displays'],['alerts','Alerts'],['device','Device']].map(([k,l])=>({label:l,active:st.adminTab===k,onClick:()=>this.setState({adminTab:k}),bg:st.adminTab===k?'#161c24':'transparent',fg:st.adminTab===k?accent:C.muted,bar:st.adminTab===k?accent:'transparent'}));
+    const pagesAdmin=st.pages.map((p,i)=>{ const on=en[p.key]; const tg=tog(on); const selq=st.adminPageSel===p.key; return {key:p.key,name:p.name,togBg:tg.bg,togX:tg.x,toggle:()=>this.togglePage(p.key),up:()=>this.movePage(p.key,-1),down:()=>this.movePage(p.key,1),select:()=>this.setState({adminPageSel:p.key}),selBg:selq?'#161c24':'transparent',selBorder:selq?accent:'#202834'}; });
+    const sources=st.sources.map(s=>{ const tg=tog(s.connected); return {key:s.key,name:s.name,token:s.token,pillText:s.connected?'Connected':'Disconnected',pillColor:s.connected?C.good:C.crit,pillBg:s.connected?'rgba(143,191,127,.14)':'rgba(191,97,106,.14)',togBg:tg.bg,togX:tg.x,toggle:()=>this.toggleSource(s.key)}; });
+    const itemLabels={anthropic:B.anthropic.accounts.map(a=>a.name+' · '+a.plan),cloudflare:B.cloudflare.sites.map(s=>s.d),paddle:B.paddle.products.map(p=>p.name),github:B.github.repos.map(r=>r.owner+'/'+r.name)};
+    const sel=st.adminPageSel;
+    const adminItems=(itemLabels[sel]||[]).map((label,i)=>{ const on=sh[sel][i]; return {label,boxBg:on?accent:'transparent',boxBorder:on?accent:'#3a4552',check:on?'✓':'',toggle:()=>this.toggleItem(sel,i)}; });
+    const adminItemsTitle=(titles[sel]?titles[sel].t:sel);
+    const tSiteDown=Object.assign({},tog(SET.alertDown),{toggle:()=>this.toggleSetting('alertDown')});
+    const tSpike=Object.assign({},tog(SET.alert4xx),{toggle:()=>this.toggleSetting('alert4xx')});
+    const dim=(100-SET.brightness)/100*0.5;
+
+    return {
+      accent,
+      isDevice:st.view==='device', isAdmin:st.view==='admin',
+      devBg:st.view==='device'?accent:'transparent', devFg:st.view==='device'?'#0b0f14':C.muted,
+      admBg:st.view==='admin'?accent:'transparent', admFg:st.view==='admin'?'#0b0f14':C.muted,
+      setDevice:()=>this.setState({view:'device'}), setAdmin:()=>this.setState({view:'admin'}),
+      isHome:st.screen==='home', isPage:st.screen!=='home',
+      isAnthropic:st.screen==='anthropic', isCloudflare:st.screen==='cloudflare', isPaddle:st.screen==='paddle', isGithub:st.screen==='github',
+      clock, dateStr,
+      goHome:()=>this.go('home'), title:ti.t, subtitle:ti.s,
+      statusPill, alertBadgeColor, alertCount:alerts.length, alerts,
+      liveText:live?'LIVE':'PAUSED', liveColor:live?C.good:C.faint,
+      tiles,
+      anAccounts, anActivity, anTotal,
+      cfStats, cfSites, cfLive, cfPageLabel:(cfPage+1)+' / '+totalPages,
+      cfPrev:()=>this.setState(s=>({cfPage:Math.max(0,s.cfPage-1)})), cfNext:()=>this.setState(s=>({cfPage:Math.min(totalPages-1,s.cfPage+1)})),
+      cfShownCount:cfSitesAll.length+' shown',
+      pdProducts, pdToday:money(B.paddle.today), pdMonth:money(B.paddle.month), pdGrowth:B.paddle.growth, pdPurch, pdCust,
+      ghRepos, ghIssues, ghPrs, ghCount:ghRepo.length,
+      dim,
+      adminNav, pagesAdmin, sources, adminItems, adminItemsTitle, tSiteDown, tSpike, settings:SET,
+      isSources:st.adminTab==='sources', isDisplays:st.adminTab==='displays', isAlertsTab:st.adminTab==='alerts', isDeviceTab:st.adminTab==='device',
+      onBright:e=>this.setSetting('brightness',+e.target.value), onUsage:e=>this.setSetting('usageAlert',+e.target.value), onRefresh:e=>this.setSetting('refresh',+e.target.value),
+    };
+  }
+}
+</script>
+</body>
+</html>
