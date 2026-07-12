@@ -300,6 +300,28 @@ def cmd_repos(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_products(_args: argparse.Namespace) -> int:
+    """List the Paddle products the token discovers, marking which are shown."""
+    token = keychain.load_secret("paddle")
+    if not token:
+        print("No Paddle token set. Run: claudemon set-token paddle", file=sys.stderr)
+        return 1
+    discovered = paddle.list_products(token)
+    if not discovered:
+        print("No products discovered (token may be rejected, or none exist).")
+        return 0
+    cfg = configmod.load()
+    shown = set(
+        configmod.resolve_shown(discovered, cfg.paddle_shown, render.MAX_COCKPIT_PRODUCTS)
+    )
+    mode = "all" if cfg.paddle_shown is None else "selected"
+    print(f"Paddle products ({len(discovered)} discovered, showing: {mode}):")
+    for name in discovered:
+        mark = "*" if name in shown else " "
+        print(f"  [{mark}] {name}")
+    return 0
+
+
 def cmd_dashboard(args: argparse.Namespace) -> int:
     claude, cf, pd, gh = _collect_dashboard()
     now = utcnow()
@@ -441,6 +463,9 @@ def main() -> None:
 
     p = sub.add_parser("repos", help="list GitHub repos the token discovers (* = shown)")
     p.set_defaults(func=cmd_repos)
+
+    p = sub.add_parser("products", help="list Paddle products the token discovers (* = shown)")
+    p.set_defaults(func=cmd_products)
 
     p = sub.add_parser("dashboard", help="fetch Claude + Cloudflare + Paddle + GitHub and print (--push to send)")
     p.add_argument("--push", action="store_true", help="also push the payload to the panel")

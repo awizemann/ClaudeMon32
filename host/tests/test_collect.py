@@ -44,10 +44,10 @@ class Clock:
 
 
 class TestDiscoveryCache:
-    def _wire_tokens(self, monkeypatch, cf=None, gh=None):
+    def _wire_tokens(self, monkeypatch, cf=None, gh=None, pd=None):
         """load_secret returns the given token per service (None otherwise)."""
         def load_secret(service):
-            return {"cloudflare": cf, "github": gh}.get(service)
+            return {"cloudflare": cf, "github": gh, "paddle": pd}.get(service)
         monkeypatch.setattr(collect.keychain, "load_secret", load_secret)
 
     def test_zone_list_cached_between_collects(self, monkeypatch, stub_stores):
@@ -84,6 +84,63 @@ class TestDiscoveryCache:
         c.collect()
         c.collect()
         assert calls["repos"] == 1
+
+    def test_product_list_cached_between_collects(self, monkeypatch, stub_stores):
+        self._wire_tokens(monkeypatch, pd="pd-tok")
+        calls = {"products": 0}
+
+        def list_products(token):
+            calls["products"] += 1
+            return ["PixelPeek"]
+
+        monkeypatch.setattr(collect.paddle, "list_products", list_products)
+        monkeypatch.setattr(collect.paddle, "fetch_all", lambda tok, prods: [])
+
+        clock = Clock()
+        c = collect.DashboardCollector(clock=clock, ttl=600.0)
+        c.collect()
+        c.collect()
+        assert calls["products"] == 1
+
+    def test_paddle_shown_selection_and_cap(self, monkeypatch, stub_stores):
+        self._wire_tokens(monkeypatch, pd="pd-tok")
+        # Config selects a subset in the user's order.
+        cfg = configmod.Config(paddle_shown=["FocusBar", "PixelPeek"])
+        monkeypatch.setattr(configmod, "load", lambda: cfg)
+        monkeypatch.setattr(
+            collect.paddle, "list_products",
+            lambda t: ["PixelPeek", "FocusBar", "SnapVault"],
+        )
+        seen = {}
+        monkeypatch.setattr(
+            collect.paddle, "fetch_all",
+            lambda tok, prods: seen.setdefault("products", prods) or [],
+        )
+        c = collect.DashboardCollector()
+        c.collect()
+        assert seen["products"] == ["FocusBar", "PixelPeek"]  # selection order preserved
+
+    def test_paddle_manual_list_without_token(self, monkeypatch):
+        monkeypatch.setattr(
+            sources, "load",
+            lambda: sources.Sources(paddle_products=["ManualApp"]),
+        )
+        monkeypatch.setattr(configmod, "load", lambda: configmod.Config())
+        monkeypatch.setattr(collect.keychain, "load_secret", lambda s: None)
+        discovered = {"called": False}
+        monkeypatch.setattr(
+            collect.paddle, "list_products",
+            lambda t: discovered.__setitem__("called", True) or [],
+        )
+        seen = {}
+        monkeypatch.setattr(
+            collect.paddle, "fetch_all",
+            lambda tok, prods: seen.setdefault("products", prods) or [],
+        )
+        c = collect.DashboardCollector()
+        c.collect()
+        assert not discovered["called"]              # no token -> no discovery
+        assert seen["products"] == ["ManualApp"]     # manual add-product fallback
 
     def test_cache_expires_after_ttl(self, monkeypatch, stub_stores):
         self._wire_tokens(monkeypatch, cf="cf-tok")

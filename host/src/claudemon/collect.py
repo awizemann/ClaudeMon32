@@ -88,6 +88,7 @@ class DashboardCollector:
         # re-discovers instead of serving a stale enumeration.
         self._zone_cache: tuple[str, float, list[dict[str, str]]] | None = None
         self._repo_cache: tuple[str, float, list[str]] | None = None
+        self._product_cache: tuple[str, float, list[str]] | None = None
         # (account-set signature, fetched_at, snapshots) — the Anthropic throttle.
         self._snapshot_cache: tuple[str, float, list[AccountUsage]] | None = None
 
@@ -126,6 +127,15 @@ class DashboardCollector:
         self._repo_cache = (token, now, discovered)
         return discovered
 
+    def _list_products(self, token: str) -> list[str]:
+        cached = self._product_cache
+        now = self._clock()
+        if cached is not None and cached[0] == token and (now - cached[1]) < self._ttl:
+            return cached[2]
+        discovered = paddle.list_products(token)
+        self._product_cache = (token, now, discovered)
+        return discovered
+
     # -- source resolution -------------------------------------------------
 
     def _resolve_zones(
@@ -151,6 +161,19 @@ class DashboardCollector:
             return srcs.github_repos
         discovered = self._list_repos(token)
         return configmod.resolve_shown(discovered, cfg.github_shown, render.MAX_COCKPIT_REPOS)
+
+    def _resolve_products(
+        self, token: str | None, srcs: sources.Sources, cfg: configmod.Config
+    ) -> list[str]:
+        """Which Paddle products to fetch this cycle. With a token: discover
+        (cached) every product + apply the `shown` selection + cap. Without a
+        token: the manual `add-product` list."""
+        if not token:
+            return srcs.paddle_products
+        discovered = self._list_products(token)
+        return configmod.resolve_shown(
+            discovered, cfg.paddle_shown, render.MAX_COCKPIT_PRODUCTS
+        )
 
     # -- the collection ----------------------------------------------------
 
@@ -190,8 +213,10 @@ class DashboardCollector:
                 ]
 
         pd: list[PaddleProductStats] = []
-        if srcs.paddle_products:
-            pd = paddle.fetch_all(keychain.load_secret("paddle"), srcs.paddle_products)
+        pd_token = keychain.load_secret("paddle")
+        products = self._resolve_products(pd_token, srcs, cfg)
+        if products:
+            pd = paddle.fetch_all(pd_token, products)
 
         gh: list[GitHubRepoStats] = []
         gh_token = keychain.load_secret("github")
