@@ -26,6 +26,58 @@ from .models import AccountState, CloudflareZoneStats, utcnow
 log = logging.getLogger(__name__)
 
 GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql"
+ZONES_URL = "https://api.cloudflare.com/client/v4/zones"
+
+# Cloudflare's REST list endpoint caps per_page at 50; we page until total_pages.
+_ZONES_PER_PAGE = 50
+
+
+def list_zones(token: str) -> list[dict[str, str]]:
+    """Discover every zone this token can see, as {"id", "name"} dicts (name is
+    the domain, e.g. "example.com"). Paginates via the REST `page`/`per_page`
+    params, following `result_info.total_pages`.
+
+    Never raises — returns [] on auth/network/schema failure and logs, so
+    discovery failures degrade to "nothing found" rather than crashing the
+    dashboard fetch."""
+    zones: list[dict[str, str]] = []
+    page = 1
+    while True:
+        try:
+            resp = client.get(
+                ZONES_URL,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"page": page, "per_page": _ZONES_PER_PAGE},
+            )
+        except httpx.HTTPError as e:
+            log.warning("cloudflare list_zones: network error: %s", e)
+            return []
+
+        if resp.status_code in (401, 403):
+            log.warning("cloudflare list_zones: token rejected (HTTP %s)", resp.status_code)
+            return []
+        if resp.status_code != 200:
+            log.warning("cloudflare list_zones: HTTP %s: %s", resp.status_code, resp.text[:200])
+            return []
+
+        body = resp.json()
+        if not body.get("success", True):
+            errors = "; ".join(e.get("message", "") for e in body.get("errors") or [])
+            log.warning("cloudflare list_zones: API errors: %s", errors[:200])
+            return []
+
+        for z in body.get("result") or []:
+            zid, name = z.get("id"), z.get("name")
+            if zid:
+                zones.append({"id": zid, "name": name or zid})
+
+        info = body.get("result_info") or {}
+        total_pages = info.get("total_pages") or 1
+        if page >= total_pages:
+            break
+        page += 1
+
+    return zones
 
 _QUERY = """
 query ($zoneTag: String!, $since: Date!, $until: Date!) {

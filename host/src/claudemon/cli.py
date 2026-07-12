@@ -10,7 +10,19 @@ import logging.handlers
 import sys
 import webbrowser
 
-from . import cloudflare, daemon, github, keychain, launchd, oauth, paddle, render, sources, usage
+from . import (
+    cloudflare,
+    config as configmod,
+    daemon,
+    github,
+    keychain,
+    launchd,
+    oauth,
+    paddle,
+    render,
+    sources,
+    usage,
+)
 from .models import (
     AccountState,
     AccountUsage,
@@ -202,23 +214,57 @@ def cmd_push_once(_args: argparse.Namespace) -> int:
 # ---------------------------------------------------------- dashboard sources
 
 
+def _resolve_zones(
+    token: str | None, srcs: sources.Sources, cfg: configmod.Config
+) -> list[sources.CloudflareZone]:
+    """Which Cloudflare zones to fetch this cycle.
+
+    With a token: DISCOVER every zone the token sees, apply the config `shown`
+    selection (absent => all, [] => none), and cap to the cockpit limit. Without
+    a token: fall back to the manual `add-zone` list (unchanged behavior)."""
+    if not token:
+        return srcs.cloudflare_zones
+    discovered = cloudflare.list_zones(token)
+    names = {z["id"]: z["name"] for z in discovered}
+    ids = [z["id"] for z in discovered]
+    chosen = configmod.resolve_shown(ids, cfg.cloudflare_shown, render.MAX_COCKPIT_ZONES)
+    return [sources.CloudflareZone(id=zid, name=names.get(zid, zid)) for zid in chosen]
+
+
+def _resolve_repos(
+    token: str | None, srcs: sources.Sources, cfg: configmod.Config
+) -> list[str]:
+    """Which GitHub repos to fetch this cycle. With a token: discover + apply the
+    `shown` selection + cap. Without a token: the manual `add-repo` list."""
+    if not token:
+        return srcs.github_repos
+    discovered = github.list_repos(token)
+    return configmod.resolve_shown(discovered, cfg.github_shown, render.MAX_COCKPIT_REPOS)
+
+
 def _collect_dashboard() -> tuple[list, list, list, list]:
     """Fetch all four dashboard sections (Claude, Cloudflare, Paddle, GitHub).
     Each source is independently resilient — a missing token or failed fetch
-    degrades only its own rows."""
+    degrades only its own rows.
+
+    When a service token is present the item list is DISCOVERED from the token
+    and narrowed by the config `shown` selection; the manual add-zone/add-repo
+    lists remain the fallback when no token is set."""
     claude = _collect_snapshots()
     srcs = sources.load()
+    cfg = configmod.load()
 
     cf: list[CloudflareZoneStats] = []
-    if srcs.cloudflare_zones:
-        token = keychain.load_secret("cloudflare")
-        if token:
-            cf = cloudflare.fetch_all(token, srcs.cloudflare_zones)
+    cf_token = keychain.load_secret("cloudflare")
+    zones = _resolve_zones(cf_token, srcs, cfg)
+    if zones:
+        if cf_token:
+            cf = cloudflare.fetch_all(cf_token, zones)
         else:
             log.warning("cloudflare zones configured but no token — run `claudemon set-token cloudflare`")
             cf = [
                 CloudflareZoneStats(name=z.name, state=AccountState.AUTH)
-                for z in srcs.cloudflare_zones
+                for z in zones
             ]
 
     pd: list[PaddleProductStats] = []
@@ -226,8 +272,10 @@ def _collect_dashboard() -> tuple[list, list, list, list]:
         pd = paddle.fetch_all(keychain.load_secret("paddle"), srcs.paddle_products)
 
     gh: list = []
-    if srcs.github_repos:
-        gh = github.fetch_all(keychain.load_secret("github"), srcs.github_repos)
+    gh_token = keychain.load_secret("github")
+    repos = _resolve_repos(gh_token, srcs, cfg)
+    if repos:
+        gh = github.fetch_all(gh_token, repos)
 
     return claude, cf, pd, gh
 
@@ -287,6 +335,47 @@ def cmd_sources(_args: argparse.Namespace) -> int:
             "\nNo extra sources yet. Add with `add-zone <id> [name]` / "
             "`add-repo <owner/repo>` / `add-product <name>`."
         )
+    return 0
+
+
+def cmd_zones(_args: argparse.Namespace) -> int:
+    """List the Cloudflare zones the token discovers, marking which are shown."""
+    token = keychain.load_secret("cloudflare")
+    if not token:
+        print("No Cloudflare token set. Run: claudemon set-token cloudflare", file=sys.stderr)
+        return 1
+    discovered = cloudflare.list_zones(token)
+    if not discovered:
+        print("No zones discovered (token may lack Zone:Read, or none exist).")
+        return 0
+    cfg = configmod.load()
+    ids = [z["id"] for z in discovered]
+    shown = set(configmod.resolve_shown(ids, cfg.cloudflare_shown, render.MAX_COCKPIT_ZONES))
+    mode = "all" if cfg.cloudflare_shown is None else "selected"
+    print(f"Cloudflare zones ({len(discovered)} discovered, showing: {mode}):")
+    for z in discovered:
+        mark = "*" if z["id"] in shown else " "
+        print(f"  [{mark}] {z['name']} ({z['id']})")
+    return 0
+
+
+def cmd_repos(_args: argparse.Namespace) -> int:
+    """List the GitHub repos the token discovers, marking which are shown."""
+    token = keychain.load_secret("github")
+    if not token:
+        print("No GitHub token set. Run: claudemon set-token github", file=sys.stderr)
+        return 1
+    discovered = github.list_repos(token)
+    if not discovered:
+        print("No repos discovered (token may lack repo scope, or none exist).")
+        return 0
+    cfg = configmod.load()
+    shown = set(configmod.resolve_shown(discovered, cfg.github_shown, render.MAX_COCKPIT_REPOS))
+    mode = "all" if cfg.github_shown is None else "selected"
+    print(f"GitHub repos ({len(discovered)} discovered, showing: {mode}):")
+    for repo in discovered:
+        mark = "*" if repo in shown else " "
+        print(f"  [{mark}] {repo}")
     return 0
 
 
@@ -419,6 +508,12 @@ def main() -> None:
 
     p = sub.add_parser("sources", help="list configured dashboard sources + token status")
     p.set_defaults(func=cmd_sources)
+
+    p = sub.add_parser("zones", help="list Cloudflare zones the token discovers (* = shown)")
+    p.set_defaults(func=cmd_zones)
+
+    p = sub.add_parser("repos", help="list GitHub repos the token discovers (* = shown)")
+    p.set_defaults(func=cmd_repos)
 
     p = sub.add_parser("dashboard", help="fetch Claude + Cloudflare + Paddle + GitHub and print (--push to send)")
     p.add_argument("--push", action="store_true", help="also push the payload to the panel")

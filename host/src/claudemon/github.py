@@ -23,6 +23,60 @@ log = logging.getLogger(__name__)
 
 GRAPHQL_URL = "https://api.github.com/graphql"
 REST_URL = "https://api.github.com/repos/{repo}"
+USER_REPOS_URL = "https://api.github.com/user/repos"
+
+
+def list_repos(token: str) -> list[str]:
+    """Discover every repo this token can see, as "owner/repo" slugs, most
+    recently pushed first. Uses REST `GET /user/repos` and follows the `Link`
+    rel=next header for pagination.
+
+    Never raises — returns [] on auth/network/schema failure and logs, so a
+    discovery hiccup degrades to "nothing found" rather than crashing the fetch."""
+    repos: list[str] = []
+    url: str | None = USER_REPOS_URL
+    params: dict | None = {"per_page": 100, "sort": "pushed"}
+    while url:
+        try:
+            resp = client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                },
+                params=params,
+            )
+        except httpx.HTTPError as e:
+            log.warning("github list_repos: network error: %s", e)
+            return []
+
+        if resp.status_code in (401, 403):
+            log.warning("github list_repos: token rejected (HTTP %s)", resp.status_code)
+            return []
+        if resp.status_code != 200:
+            log.warning("github list_repos: HTTP %s: %s", resp.status_code, resp.text[:200])
+            return []
+
+        try:
+            body = resp.json()
+        except ValueError as e:
+            log.warning("github list_repos: unparseable response: %s", e)
+            return []
+        if not isinstance(body, list):
+            log.warning("github list_repos: unexpected response shape")
+            return []
+
+        for item in body:
+            slug = item.get("full_name")
+            if slug:
+                repos.append(slug)
+
+        # Follow Link: <...>; rel="next". The `next` URL already carries the
+        # page/per_page/sort query, so we drop our own params on subsequent hops.
+        url = resp.links.get("next", {}).get("url")
+        params = None
+
+    return repos
 
 _REPO_FRAGMENT = """
   %s: repository(owner: "%s", name: "%s") {
