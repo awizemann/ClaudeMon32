@@ -320,15 +320,17 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
                 f"issues {render.fmt_count(r.open_issues) or '--':>4}  "
                 f"PRs {render.fmt_count(r.open_prs) or '--':>4}  [{r.state.value}]"
             )
-    if args.cockpit:
-        totals = paddle.combine_totals(pd)
-        payload = render.to_cockpit_payload(claude, cf, pd, totals, gh, now)
-        print(f"\n[cockpit payload: {len(json.dumps(payload))} bytes]")
+    if args.legacy:
+        # Pre-Cockpit firmware (set_dashboard). The current CrowPanel firmware
+        # speaks set_cockpit only, so this is just an escape hatch for old images.
         if args.push:
-            return _push_payload(payload, args.port)
+            return _push_payload(render.to_dashboard_payload(claude, cf, gh, now), args.port)
         return 0
+    totals = paddle.combine_totals(pd)
+    payload = render.to_cockpit_payload(claude, cf, pd, totals, gh, now)
+    print(f"\n[cockpit payload: {len(json.dumps(payload))} bytes]")
     if args.push:
-        return _push_payload(render.to_dashboard_payload(claude, cf, gh, now), args.port)
+        return _push_payload(payload, args.port)
     return 0
 
 
@@ -421,9 +423,10 @@ def main() -> None:
     p = sub.add_parser("dashboard", help="fetch Claude + Cloudflare + Paddle + GitHub and print (--push to send)")
     p.add_argument("--push", action="store_true", help="also push the payload to the panel")
     p.add_argument(
-        "--cockpit",
+        "--legacy",
         action="store_true",
-        help="build the enriched set_cockpit payload (redesigned UI) instead of set_dashboard",
+        help="build the older set_dashboard payload (for pre-Cockpit firmware) "
+        "instead of the default set_cockpit",
     )
     p.add_argument(
         "--port",
