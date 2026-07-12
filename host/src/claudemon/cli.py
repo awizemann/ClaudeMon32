@@ -12,6 +12,7 @@ import webbrowser
 
 from . import (
     cloudflare,
+    collect,
     config as configmod,
     daemon,
     github,
@@ -23,13 +24,8 @@ from . import (
     sources,
     usage,
 )
-from .models import (
-    AccountState,
-    AccountUsage,
-    CloudflareZoneStats,
-    PaddleProductStats,
-    utcnow,
-)
+from .collect import _collect_snapshots
+from .models import utcnow
 from .serial_link import DeviceLink
 
 log = logging.getLogger("claudemon")
@@ -131,23 +127,6 @@ def cmd_accounts(_args: argparse.Namespace) -> int:
     return 0
 
 
-def _collect_snapshots() -> list[AccountUsage]:
-    snapshots: list[AccountUsage] = []
-    for label in keychain.list_accounts():
-        snap = AccountUsage(label=label)
-        try:
-            creds = oauth.load_fresh(label)
-            snap = usage.fetch_usage(label, creds)
-        except (keychain.KeychainError, oauth.OAuthError) as e:
-            log.warning("%s: %s", label, e)
-            snap.state = AccountState.AUTH
-        except (oauth.OAuthTransientError, usage.UsageFetchError) as e:
-            log.warning("%s: %s", label, e)
-            snap.state = AccountState.ERROR
-        snapshots.append(snap)
-    return snapshots
-
-
 def cmd_status(args: argparse.Namespace) -> int:
     if args.cached:
         state = daemon.read_state()
@@ -214,70 +193,12 @@ def cmd_push_once(_args: argparse.Namespace) -> int:
 # ---------------------------------------------------------- dashboard sources
 
 
-def _resolve_zones(
-    token: str | None, srcs: sources.Sources, cfg: configmod.Config
-) -> list[sources.CloudflareZone]:
-    """Which Cloudflare zones to fetch this cycle.
-
-    With a token: DISCOVER every zone the token sees, apply the config `shown`
-    selection (absent => all, [] => none), and cap to the cockpit limit. Without
-    a token: fall back to the manual `add-zone` list (unchanged behavior)."""
-    if not token:
-        return srcs.cloudflare_zones
-    discovered = cloudflare.list_zones(token)
-    names = {z["id"]: z["name"] for z in discovered}
-    ids = [z["id"] for z in discovered]
-    chosen = configmod.resolve_shown(ids, cfg.cloudflare_shown, render.MAX_COCKPIT_ZONES)
-    return [sources.CloudflareZone(id=zid, name=names.get(zid, zid)) for zid in chosen]
-
-
-def _resolve_repos(
-    token: str | None, srcs: sources.Sources, cfg: configmod.Config
-) -> list[str]:
-    """Which GitHub repos to fetch this cycle. With a token: discover + apply the
-    `shown` selection + cap. Without a token: the manual `add-repo` list."""
-    if not token:
-        return srcs.github_repos
-    discovered = github.list_repos(token)
-    return configmod.resolve_shown(discovered, cfg.github_shown, render.MAX_COCKPIT_REPOS)
-
-
 def _collect_dashboard() -> tuple[list, list, list, list]:
-    """Fetch all four dashboard sections (Claude, Cloudflare, Paddle, GitHub).
-    Each source is independently resilient — a missing token or failed fetch
-    degrades only its own rows.
-
-    When a service token is present the item list is DISCOVERED from the token
-    and narrowed by the config `shown` selection; the manual add-zone/add-repo
-    lists remain the fallback when no token is set."""
-    claude = _collect_snapshots()
-    srcs = sources.load()
-    cfg = configmod.load()
-
-    cf: list[CloudflareZoneStats] = []
-    cf_token = keychain.load_secret("cloudflare")
-    zones = _resolve_zones(cf_token, srcs, cfg)
-    if zones:
-        if cf_token:
-            cf = cloudflare.fetch_all(cf_token, zones)
-        else:
-            log.warning("cloudflare zones configured but no token — run `claudemon set-token cloudflare`")
-            cf = [
-                CloudflareZoneStats(name=z.name, state=AccountState.AUTH)
-                for z in zones
-            ]
-
-    pd: list[PaddleProductStats] = []
-    if srcs.paddle_products:
-        pd = paddle.fetch_all(keychain.load_secret("paddle"), srcs.paddle_products)
-
-    gh: list = []
-    gh_token = keychain.load_secret("github")
-    repos = _resolve_repos(gh_token, srcs, cfg)
-    if repos:
-        gh = github.fetch_all(gh_token, repos)
-
-    return claude, cf, pd, gh
+    """One-shot fetch of all four dashboard sections via the shared collector.
+    A fresh collector per call means discovery isn't cached across CLI
+    invocations (the daemon keeps a long-lived collector so its poll loop does
+    cache; see collect.DashboardCollector)."""
+    return collect.DashboardCollector().collect()
 
 
 def cmd_set_token(args: argparse.Namespace) -> int:
@@ -416,7 +337,13 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
             return _push_payload(render.to_dashboard_payload(claude, cf, gh, now), args.port)
         return 0
     totals = paddle.combine_totals(pd)
-    payload = render.to_cockpit_payload(claude, cf, pd, totals, gh, now)
+    settings = configmod.load().settings
+    payload = render.to_cockpit_payload(
+        claude, cf, pd, totals, gh, now,
+        usage_threshold=settings.usage_threshold,
+        alert_on_down=settings.alert_down,
+        alert_on_4xx=settings.alert_4xx,
+    )
     print(f"\n[cockpit payload: {len(json.dumps(payload))} bytes]")
     if args.push:
         return _push_payload(payload, args.port)

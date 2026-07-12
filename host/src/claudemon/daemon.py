@@ -1,4 +1,20 @@
-"""Poll/refresh/push loop for `claudemon run`."""
+"""Poll/refresh/push loop for `claudemon run`.
+
+Drives the CrowPanel Cockpit: every cycle it fetches all four cockpit sections
+(Anthropic + discovered Cloudflare/GitHub + Paddle) through the shared
+`collect.DashboardCollector`, renders the `set_cockpit` payload, and pushes it
+over serial. Two virtues carried over from the classic e-paper loop:
+
+- **change detection** — only push when the rendered content actually changed,
+  so the device isn't spammed by identical frames; and
+- **a periodic heartbeat** — push at least every few minutes even when nothing
+  changed, so the device's 10-minute STALE overlay never trips.
+
+The cockpit payload carries live-tick fields the device counts down locally
+(`base`, per-account `fh_sec`) plus the `updated` clock string; all three change
+on every fetch, so they're excluded from the change comparison — otherwise the
+clock alone would force a push every cycle.
+"""
 
 from __future__ import annotations
 
@@ -6,204 +22,135 @@ import json
 import logging
 import time
 
-from . import keychain, oauth, render, usage
-from .models import AccountState, AccountUsage, utcnow
+from . import collect, config as configmod, keychain, paddle, render
+from .models import AccountUsage, utcnow
 from .serial_link import DeviceLink
 
 log = logging.getLogger(__name__)
 
-POLL_INTERVAL_S = 180       # 60s drew steady HTTP 429s with 3 accounts
-MIN_PUSH_GAP_S = 150        # countdown strings tick every minute; don't chase them
-HEARTBEAT_PUSH_S = 5 * 60
-ERROR_THRESHOLD = 3
-BACKOFF_BASE_S = 60
-BACKOFF_MAX_S = 300
-RATE_LIMIT_BACKOFF_S = 300
-LOOP_TICK_S = 10
+# The poll cadence comes from config.Settings.refresh (seconds); these bound it.
+MIN_REFRESH_S = 15          # floor for the dashboard loop. Anthropic usage is
+                            # throttled independently (collect.USAGE_TTL_S ~3min),
+                            # so a low refresh only speeds the unthrottled
+                            # CF/GitHub/Paddle stats — it can't 429 the usage API.
+DEFAULT_REFRESH_S = 60
+HEARTBEAT_PUSH_S = 5 * 60   # push at least this often so STALE (10min) never trips
 
 STATE_FILE = keychain.CONFIG_DIR / "state.json"
 
 
-class AccountRunner:
-    """Per-account poll state: snapshot, failures, backoff, auth health."""
-
-    def __init__(self, label: str) -> None:
-        self.label = label
-        self.snapshot: AccountUsage = AccountUsage(label=label, state=AccountState.ERROR)
-        self.consecutive_failures = 0
-        self.next_poll_at = 0.0
-        self.auth_failed = False
-        self.last_auth_log = 0.0
-        self.credentials_gone = False  # Keychain item vanished; prune this account
-
-    def poll(self) -> None:
-        now = time.monotonic()
-        if now < self.next_poll_at:
-            return
-        self.next_poll_at = now + POLL_INTERVAL_S
-
-        if self.auth_failed:
-            # Log at most hourly; re-login is a manual step.
-            if now - self.last_auth_log > 3600:
-                log.warning("%s: auth failed — run `claudemon login %s`", self.label, self.label)
-                self.last_auth_log = now
-            return
-
-        try:
-            creds = oauth.load_fresh(self.label)
-        except keychain.KeychainNotFoundError:
-            log.warning(
-                "%s: credentials no longer in the Keychain; removing account", self.label
-            )
-            self.credentials_gone = True
-            self._mark_auth_failed()
-            return
-        except (keychain.KeychainError, oauth.OAuthError) as e:
-            log.warning("%s: %s", self.label, e)
-            self._mark_auth_failed()
-            return
-        except oauth.OAuthTransientError as e:
-            log.warning("%s: token refresh error (transient): %s", self.label, e)
-            return
-
-        try:
-            snap = usage.fetch_usage(self.label, creds)
-        except usage.UsageFetchError as e:
-            if e.status_code == 401:
-                # Token looked valid but was rejected: one forced refresh, then degrade.
-                snap = self._forced_refresh_fetch(creds)
-                if snap is None:
-                    return
-            elif e.status_code == 429:
-                # Throttled, not broken: keep the last snapshot healthy and
-                # slow down without escalating toward ERROR.
-                self.next_poll_at = now + RATE_LIMIT_BACKOFF_S
-                log.info("%s: rate limited; backing off %ds", self.label, RATE_LIMIT_BACKOFF_S)
-                return
-            else:
-                self.consecutive_failures += 1
-                backoff = min(BACKOFF_BASE_S * (2 ** (self.consecutive_failures - 1)), BACKOFF_MAX_S)
-                self.next_poll_at = now + backoff
-                log.warning(
-                    "%s: fetch failed (%d consecutive, backoff %ds): %s",
-                    self.label, self.consecutive_failures, backoff, e,
-                )
-                if self.consecutive_failures >= ERROR_THRESHOLD:
-                    self.snapshot.state = AccountState.ERROR
-                return
-
-        self.consecutive_failures = 0
-        self.snapshot = snap
-
-    def _forced_refresh_fetch(self, creds) -> AccountUsage | None:
-        """401 with a fresh-looking token: refresh once, retry the fetch.
-        Returns the snapshot, or None after classifying the failure."""
-        try:
-            creds = oauth.refresh(creds)
-            keychain.save_account(self.label, creds)
-            return usage.fetch_usage(self.label, creds)
-        except (oauth.OAuthError, keychain.KeychainError) as e:
-            log.warning("%s: unauthorized after forced refresh: %s", self.label, e)
-            self._mark_auth_failed()
-            return None
-        except (oauth.OAuthTransientError, usage.UsageFetchError) as e:
-            log.warning("%s: forced refresh/fetch failed (transient): %s", self.label, e)
-            return None
-
-    def _mark_auth_failed(self) -> None:
-        self.auth_failed = True
-        self.snapshot.state = AccountState.AUTH
-        self.last_auth_log = time.monotonic()
-
-
-def _reconcile_runners(runners: dict[str, AccountRunner]) -> None:
-    """Sync runners with the account index; pick up login/logout without a
-    restart and prune accounts whose Keychain item vanished."""
-    for label, runner in list(runners.items()):
-        if runner.credentials_gone:
-            keychain.delete_account(label)  # prunes the index; item already gone
-            del runners[label]
+def _refresh_interval() -> float:
+    """Poll/push cadence from config, floored so a misconfig can't hammer the
+    APIs. A bad/absent config falls back to the default."""
     try:
-        current = keychain.list_accounts()
-    except keychain.KeychainError as e:
-        log.error("account index unreadable; keeping last-known accounts: %s", e)
-        return
-    for label in current:
-        if label not in runners:
-            log.info("account added: %s", label)
-            runners[label] = AccountRunner(label)
-    for label in list(runners):
-        if label not in current:
-            log.info("account removed: %s", label)
-            del runners[label]
+        refresh = configmod.load().settings.refresh
+    except (ValueError, OSError) as e:
+        log.warning("config unreadable; using default refresh %ds: %s", DEFAULT_REFRESH_S, e)
+        refresh = DEFAULT_REFRESH_S
+    return float(max(MIN_REFRESH_S, refresh))
+
+
+def _comparable(payload: dict) -> str:
+    """Serialize the cockpit params for change-detection, excluding the live-tick
+    fields that change every fetch — `base` (header clock seed), `updated` (the
+    HH:MM string), and each account's `fh_sec` (seconds-to-reset). Without this
+    the clock alone would force a push every cycle; with it, only real content
+    changes (percents, countdown strings, counts) trigger an early push."""
+    params = json.loads(json.dumps(payload["params"]))  # deep copy; don't mutate the push payload
+    params.pop("base", None)
+    params.pop("updated", None)
+    for card in params.get("anthropic", {}).get("accounts", []):
+        card.pop("fh_sec", None)
+    return json.dumps(params, sort_keys=True)
+
+
+def _build_payload(collector: collect.DashboardCollector, now) -> tuple[dict, list[AccountUsage]]:
+    """Collect all four sources and render the set_cockpit payload, wiring the
+    admin alert config (usage threshold + down/4xx toggles) in. Never raises —
+    the collector already classifies each source's failures into row state."""
+    claude, cf, pd, gh = collector.collect()
+    totals = paddle.combine_totals(pd)
+    settings = _settings()
+    payload = render.to_cockpit_payload(
+        claude, cf, pd, totals, gh, now,
+        usage_threshold=settings.usage_threshold,
+        alert_on_down=settings.alert_down,
+        alert_on_4xx=settings.alert_4xx,
+    )
+    return payload, claude
+
+
+def _settings() -> configmod.Settings:
+    try:
+        return configmod.load().settings
+    except (ValueError, OSError) as e:
+        log.warning("config unreadable; using default settings: %s", e)
+        return configmod.Settings()
 
 
 def run_loop() -> None:
-    labels = keychain.list_accounts()
-    if not labels:
+    if not keychain.list_accounts():
         log.error("no accounts configured — run `claudemon login <label>` first")
         raise SystemExit(1)
 
-    log.info("starting poll loop for accounts: %s", ", ".join(labels))
-    runners = {label: AccountRunner(label) for label in labels}
+    log.info("starting cockpit poll loop")
+    collector = collect.DashboardCollector()
     link = DeviceLink()
-    last_pushed_payload: str | None = None
+    last_pushed: str | None = None
     last_state_sig: str | None = None
-    last_push_at = float("-inf")  # monotonic() is uptime-based; 0.0 would gate
-    next_reconnect_at = 0.0       # the first push on machines that just booted
+    last_push_at = float("-inf")  # monotonic() is uptime-based; 0.0 would gate the
+    next_reconnect_at = 0.0       # first push on a machine that just booted
     reconnect_backoff = 2.0
 
     while True:
-        _reconcile_runners(runners)
-        for runner in runners.values():
-            runner.poll()
+        now = utcnow()
+        try:
+            payload, snapshots = _build_payload(collector, now)
+        except Exception as e:  # collection is best-effort; never kill the loop
+            log.exception("collection cycle failed; retrying next interval: %s", e)
+            time.sleep(_refresh_interval())
+            continue
 
-        snapshots = [r.snapshot for r in runners.values()]
-
-        # State file + device payload only change when a poll landed; skip the
-        # serialization work on the ~17 idle ticks between polls.
-        state_sig = json.dumps(
-            [s.to_state_dict() for s in snapshots], sort_keys=True
-        )
+        # State file only changes when the underlying account numbers move; skip
+        # the write on cycles that didn't shift anything.
+        state_sig = json.dumps([s.to_state_dict() for s in snapshots], sort_keys=True)
         if state_sig != last_state_sig:
             last_state_sig = state_sig
             write_state(snapshots)
 
-        now = time.monotonic()
-        due_for_change_push = (now - last_push_at) >= MIN_PUSH_GAP_S
-        due_for_heartbeat = (now - last_push_at) > HEARTBEAT_PUSH_S
+        clock = time.monotonic()
+        comparable = _comparable(payload)
+        changed = comparable != last_pushed
+        due_for_heartbeat = (clock - last_push_at) > HEARTBEAT_PUSH_S
 
-        if due_for_change_push or due_for_heartbeat:
-            payload = render.to_device_payload(snapshots, utcnow())
-            # Compare without the volatile "updated" clock so only content
-            # changes (percentages, countdown strings) trigger an early push.
-            comparable = json.dumps({**payload["params"], "updated": ""}, sort_keys=True)
-            changed = comparable != last_pushed_payload
+        if changed or due_for_heartbeat:
+            if not link.connected and clock >= next_reconnect_at:
+                if link.connect():
+                    reconnect_backoff = 2.0
+                else:
+                    next_reconnect_at = clock + reconnect_backoff
+                    reconnect_backoff = min(reconnect_backoff * 2, 30.0)
+                    log.debug("device not found; retrying in %ds", reconnect_backoff)
 
-            if changed or due_for_heartbeat:
-                if not link.connected and now >= next_reconnect_at:
-                    if link.connect():
-                        reconnect_backoff = 2.0
-                    else:
-                        next_reconnect_at = now + reconnect_backoff
-                        reconnect_backoff = min(reconnect_backoff * 2, 30.0)
-                        log.debug("device not found; retrying in %ds", reconnect_backoff)
+            if link.connected:
+                resp = link.send_command(payload)
+                if resp and resp.get("status") == "ok":
+                    last_pushed = comparable
+                    last_push_at = clock
+                    log.log(
+                        logging.INFO if changed else logging.DEBUG,
+                        "pushed cockpit to device (%s)%s",
+                        link.port,
+                        "" if changed else " [heartbeat]",
+                    )
+                else:
+                    log.warning("device push failed; will retry next cycle")
 
-                if link.connected:
-                    resp = link.send_command(payload)
-                    if resp and resp.get("status") == "ok":
-                        last_pushed_payload = comparable
-                        last_push_at = now
-                        log.log(
-                            logging.INFO if changed else logging.DEBUG,
-                            "pushed usage to device (%s)%s",
-                            link.port,
-                            "" if changed else " [heartbeat]",
-                        )
-                    else:
-                        log.warning("device push failed; will retry next cycle")
+        # NOTE: the classic e-paper board spoke set_usage; the daemon now targets
+        # the cockpit only. An e-paper deployment would need its own render/push
+        # path (render.to_device_payload) — out of scope here.
 
-        time.sleep(LOOP_TICK_S)
+        time.sleep(_refresh_interval())
 
 
 def write_state(snapshots: list[AccountUsage]) -> None:
