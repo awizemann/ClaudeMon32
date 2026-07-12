@@ -4,3 +4,11 @@ __pycache__/
 *.pyc
 esp32/firmware/.pio/
 .claude/
+
+# Memophant app-local state (machine-specific, not for git)
+.memophant/
+
+sessions/.raw/
+sessions/.index.json
+
+.claude/memophant-activity.log
