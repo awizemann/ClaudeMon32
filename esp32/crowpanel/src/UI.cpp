@@ -375,6 +375,12 @@ static void buildHeaders(lv_obj_t* scr) {
     lv_obj_set_style_border_color(s_hdrPage, COL_DIV, 0);
     lv_obj_set_style_border_side(s_hdrPage, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_width(s_hdrPage, 1, 0);
+    // The whole top bar taps home. The 44px back glyph is a small target and the
+    // GT911 is twitchy near the top edge, so tapping anywhere in the page header
+    // (title, clock, empty space) returns to the grid — the back glyph is just
+    // the visible affordance.
+    lv_obj_add_flag(s_hdrPage, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_hdrPage, onBack, LV_EVENT_CLICKED, nullptr);
 
     // Back button (44x40 tile, accent glyph).
     lv_obj_t* back = lv_obj_create(s_hdrPage);
@@ -1087,7 +1093,11 @@ void ui_init() {
     lv_obj_set_style_border_width(s_dim, 0, 0);
     lv_obj_set_style_radius(s_dim, 0, 0);
     lv_obj_clear_flag(s_dim, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_dim, LV_OBJ_FLAG_FLOATING);
+    // Hidden by default (brightness 100 = no dim). A full-screen top-layer object
+    // forces the compositor to touch every pixel each refresh, which aggravates
+    // the RGB panel's PSRAM-bandwidth jitter — so keep it out of the tree until
+    // brightness is actually turned down (Phase 3 admin).
+    lv_obj_add_flag(s_dim, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_HIDDEN);
 
     applyChrome();
 }
@@ -1152,6 +1162,11 @@ void ui_set_stale(bool stale) {
 void ui_set_brightness(uint8_t pct) {
     if (!s_dim) return;
     if (pct > 100) pct = 100;
+    if (pct >= 100) {                       // no dim — drop the overlay entirely
+        lv_obj_add_flag(s_dim, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_clear_flag(s_dim, LV_OBJ_FLAG_HIDDEN);
     // opacity = (100 - brightness)/100 * 0.5  (max half-black at brightness 0).
     lv_opa_t opa = (lv_opa_t)((100 - pct) * 255 / 100 / 2);
     lv_obj_set_style_bg_opa(s_dim, opa, 0);
