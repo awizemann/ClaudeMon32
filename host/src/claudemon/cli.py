@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import logging
 import logging.handlers
 import sys
 import webbrowser
 
-from . import daemon, keychain, launchd, oauth, render, usage
-from .models import AccountState, AccountUsage, utcnow
+from . import cloudflare, daemon, github, keychain, launchd, oauth, paddle, render, sources, usage
+from .models import (
+    AccountState,
+    AccountUsage,
+    CloudflareZoneStats,
+    PaddleProductStats,
+    utcnow,
+)
 from .serial_link import DeviceLink
 
 log = logging.getLogger("claudemon")
@@ -192,6 +199,154 @@ def cmd_push_once(_args: argparse.Namespace) -> int:
     return 1
 
 
+# ---------------------------------------------------------- dashboard sources
+
+
+def _collect_dashboard() -> tuple[list, list, list, list]:
+    """Fetch all four dashboard sections (Claude, Cloudflare, Paddle, GitHub).
+    Each source is independently resilient — a missing token or failed fetch
+    degrades only its own rows."""
+    claude = _collect_snapshots()
+    srcs = sources.load()
+
+    cf: list[CloudflareZoneStats] = []
+    if srcs.cloudflare_zones:
+        token = keychain.load_secret("cloudflare")
+        if token:
+            cf = cloudflare.fetch_all(token, srcs.cloudflare_zones)
+        else:
+            log.warning("cloudflare zones configured but no token — run `claudemon set-token cloudflare`")
+            cf = [
+                CloudflareZoneStats(name=z.name, state=AccountState.AUTH)
+                for z in srcs.cloudflare_zones
+            ]
+
+    pd: list[PaddleProductStats] = []
+    if srcs.paddle_products:
+        pd = paddle.fetch_all(keychain.load_secret("paddle"), srcs.paddle_products)
+
+    gh: list = []
+    if srcs.github_repos:
+        gh = github.fetch_all(keychain.load_secret("github"), srcs.github_repos)
+
+    return claude, cf, pd, gh
+
+
+def cmd_set_token(args: argparse.Namespace) -> int:
+    token = getpass.getpass(f"Paste the {args.service} token (input hidden): ").strip()
+    if not token:
+        print("No token entered; aborting.", file=sys.stderr)
+        return 1
+    keychain.save_secret(args.service, token)
+    print(f"Stored the {args.service} token in the Keychain (service 'claudemon').")
+    return 0
+
+
+def cmd_add_zone(args: argparse.Namespace) -> int:
+    sources.add_zone(args.zone_id, args.name)
+    print(f"Watching Cloudflare zone {args.name or args.zone_id} ({args.zone_id}).")
+    return 0
+
+
+def cmd_add_repo(args: argparse.Namespace) -> int:
+    try:
+        sources.add_repo(args.repo)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(f"Watching GitHub repo {args.repo}.")
+    return 0
+
+
+def cmd_add_product(args: argparse.Namespace) -> int:
+    try:
+        sources.add_product(args.name)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(f"Watching Paddle product {args.name}.")
+    return 0
+
+
+def cmd_sources(_args: argparse.Namespace) -> int:
+    srcs = sources.load()
+    cf_token = "set" if keychain.load_secret("cloudflare") else "MISSING"
+    gh_token = "set" if keychain.load_secret("github") else "none (public REST)"
+    pd_token = "set" if keychain.load_secret("paddle") else "none (demo data)"
+    print(f"Cloudflare token: {cf_token}")
+    for z in srcs.cloudflare_zones:
+        print(f"  zone {z.name} ({z.id})")
+    print(f"Paddle token: {pd_token}")
+    for p in srcs.paddle_products:
+        print(f"  product {p}")
+    print(f"GitHub token: {gh_token}")
+    for r in srcs.github_repos:
+        print(f"  repo {r}")
+    if srcs.empty:
+        print(
+            "\nNo extra sources yet. Add with `add-zone <id> [name]` / "
+            "`add-repo <owner/repo>` / `add-product <name>`."
+        )
+    return 0
+
+
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    claude, cf, pd, gh = _collect_dashboard()
+    now = utcnow()
+    print(render.status_table(claude, now))
+    if cf:
+        print("\nCLOUDFLARE")
+        for z in cf:
+            print(
+                f"  {z.name:<16} req {render.fmt_count(z.requests) or '--':>6}  "
+                f"cache {z.cache_pct if z.cache_pct is not None else '--'}%  "
+                f"visitors {render.fmt_count(z.unique_visitors) or '--':>6}  "
+                f"threats {render.fmt_count(z.threats) or '--':>5}  [{z.state.value}]"
+            )
+    if pd:
+        print("\nPADDLE")
+        for p in pd:
+            print(
+                f"  {p.name:<16} buys {render.fmt_count(p.purchases) or '--':>6}  "
+                f"custs {render.fmt_count(p.customers) or '--':>6}  "
+                f"rev/mo {render.fmt_money(p.revenue_month) or '--':>8}  [{p.state.value}]"
+            )
+    if gh:
+        print("\nGITHUB")
+        for r in gh:
+            print(
+                f"  {r.name:<22} ★{render.fmt_count(r.stars) or '--':>5}  "
+                f"forks {render.fmt_count(r.forks) or '--':>5}  "
+                f"issues {render.fmt_count(r.open_issues) or '--':>4}  "
+                f"PRs {render.fmt_count(r.open_prs) or '--':>4}  [{r.state.value}]"
+            )
+    if args.cockpit:
+        totals = paddle.combine_totals(pd)
+        payload = render.to_cockpit_payload(claude, cf, pd, totals, gh, now)
+        print(f"\n[cockpit payload: {len(json.dumps(payload))} bytes]")
+        if args.push:
+            return _push_payload(payload, args.port)
+        return 0
+    if args.push:
+        return _push_payload(render.to_dashboard_payload(claude, cf, gh, now), args.port)
+    return 0
+
+
+def _push_payload(payload: dict, port: str | None = None) -> int:
+    link = DeviceLink(port)
+    if not link.connect():
+        print("\nNo device found (checked usbmodem*, usbserial*, wchusbserial*, SLAB*).", file=sys.stderr)
+        return 1
+    resp = link.send_command(payload)
+    port = link.port
+    link.close()
+    if resp and resp.get("status") == "ok":
+        print(f"\nPushed to device on {port or 'serial port'}.")
+        return 0
+    print(f"\nDevice rejected push: {resp}", file=sys.stderr)
+    return 1
+
+
 def cmd_run(_args: argparse.Namespace) -> int:
     daemon.run_loop()
     return 0
@@ -242,6 +397,40 @@ def main() -> None:
 
     p = sub.add_parser("push-once", help="fetch usage once and push it to the device")
     p.set_defaults(func=cmd_push_once)
+
+    p = sub.add_parser("set-token", help="store a Cloudflare/GitHub/Paddle API token in the Keychain")
+    p.add_argument("service", choices=["cloudflare", "github", "paddle"])
+    p.set_defaults(func=cmd_set_token)
+
+    p = sub.add_parser("add-zone", help="watch a Cloudflare zone (analytics)")
+    p.add_argument("zone_id", help="Cloudflare zone tag/ID")
+    p.add_argument("name", nargs="?", help="display name (default: the zone id)")
+    p.set_defaults(func=cmd_add_zone)
+
+    p = sub.add_parser("add-repo", help="watch a GitHub repo (owner/repo)")
+    p.add_argument("repo")
+    p.set_defaults(func=cmd_add_repo)
+
+    p = sub.add_parser("add-product", help="watch a Paddle product (by display name)")
+    p.add_argument("name", help="product display name, e.g. PixelPeek")
+    p.set_defaults(func=cmd_add_product)
+
+    p = sub.add_parser("sources", help="list configured dashboard sources + token status")
+    p.set_defaults(func=cmd_sources)
+
+    p = sub.add_parser("dashboard", help="fetch Claude + Cloudflare + Paddle + GitHub and print (--push to send)")
+    p.add_argument("--push", action="store_true", help="also push the payload to the panel")
+    p.add_argument(
+        "--cockpit",
+        action="store_true",
+        help="build the enriched set_cockpit payload (redesigned UI) instead of set_dashboard",
+    )
+    p.add_argument(
+        "--port",
+        help="serial port to push to (e.g. /dev/cu.wchusbserial20130); "
+        "pins the CrowPanel when the e-paper board is also connected. Default: auto-detect.",
+    )
+    p.set_defaults(func=cmd_dashboard)
 
     p = sub.add_parser("run", help="poll/push loop (used by the launchd agent)")
     p.add_argument("--foreground", action="store_true", help="log to stderr instead of the log file")

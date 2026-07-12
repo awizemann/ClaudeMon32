@@ -30,9 +30,12 @@ def candidate_ports() -> list[str]:
 
 
 class DeviceLink:
-    def __init__(self) -> None:
+    def __init__(self, port: str | None = None) -> None:
         self._serial: serial.Serial | None = None
         self.port: str | None = None
+        # An explicit port pins the target (e.g. the CrowPanel's wchusbserial when
+        # the e-paper board is also plugged in on usbmodem); otherwise auto-detect.
+        self._preferred = port
 
     @property
     def connected(self) -> bool:
@@ -41,7 +44,8 @@ class DeviceLink:
     def connect(self) -> bool:
         """Find and open the device port; verify with a ping. Returns success."""
         self.close()
-        for port in candidate_ports():
+        ports = [self._preferred] if self._preferred else candidate_ports()
+        for port in ports:
             try:
                 # Default DTR/RTS-asserted open: the device's USB-CDC gates its
                 # TX on DTR, so deasserting it silences all responses. This

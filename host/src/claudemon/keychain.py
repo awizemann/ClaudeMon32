@@ -91,6 +91,47 @@ def list_accounts() -> list[str]:
         ) from e
 
 
+# ---------------------------------------------------------------- API tokens
+# Cloudflare/GitHub read tokens for the dashboard sources. Stored under the same
+# service but with a "token:" account prefix, so they live behind the same stable
+# `security`-binary ACL as the Claude grants yet never appear in list_accounts()
+# (which reads the JSON index, not the Keychain). Never persisted to any file.
+
+_TOKEN_PREFIX = "token:"
+
+
+def save_secret(name: str, value: str) -> None:
+    _run(
+        [
+            "add-generic-password",
+            "-U",
+            "-s", SERVICE,
+            "-a", f"{_TOKEN_PREFIX}{name}",
+            "-l", f"ClaudeMon token ({name})",
+            "-w", value,
+        ]
+    )
+
+
+def load_secret(name: str) -> str | None:
+    """Return the stored token, or None if it was never set."""
+    proc = _run(
+        ["find-generic-password", "-s", SERVICE, "-a", f"{_TOKEN_PREFIX}{name}", "-w"],
+        check=False,
+    )
+    if proc.returncode == _SEC_ITEM_NOT_FOUND_RC:
+        return None
+    if proc.returncode != 0:
+        raise KeychainError(
+            f"Keychain read failed for token '{name}' (rc={proc.returncode}): {proc.stderr.strip()}"
+        )
+    return proc.stdout.strip()
+
+
+def delete_secret(name: str) -> None:
+    _run(["delete-generic-password", "-s", SERVICE, "-a", f"{_TOKEN_PREFIX}{name}"], check=False)
+
+
 def _write_index(labels: list[str]) -> None:
     CONFIG_DIR.mkdir(mode=0o700, exist_ok=True)
     INDEX_FILE.write_text(json.dumps({"accounts": sorted(set(labels))}, indent=2) + "\n")
