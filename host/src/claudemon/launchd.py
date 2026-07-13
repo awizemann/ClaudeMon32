@@ -32,7 +32,10 @@ def install() -> str:
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     plist = {
         "Label": LABEL,
-        "ProgramArguments": [_claudemon_executable(), "run"],
+        # WiFi first (mDNS claudemon.local), serial fallback — so the panel is
+        # driven over the network when reachable and over USB otherwise, with no
+        # per-machine config.
+        "ProgramArguments": [_claudemon_executable(), "run", "--device", "auto"],
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": 30,

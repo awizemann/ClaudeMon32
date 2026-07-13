@@ -398,9 +398,11 @@ def cmd_admin(args: argparse.Namespace) -> int:
 def _build_link(spec: str | None):
     """Resolve a --device spec into a transport link. `serial` (default, auto-
     detect) or `serial:/dev/cu.xxx`; `tcp` (mDNS claudemon.local) or `tcp:HOST`
-    / `tcp:HOST:PORT`."""
+    / `tcp:HOST:PORT`; `auto` (WiFi first, serial fallback — used by the agent)."""
     if not spec or spec == "serial":
         return DeviceLink()
+    if spec == "auto":
+        return net_link.AutoLink([net_link.NetworkLink(), DeviceLink()])
     if spec.startswith("serial:"):
         return DeviceLink(port=spec.split(":", 1)[1])
     if spec == "tcp":
@@ -411,7 +413,7 @@ def _build_link(spec: str | None):
             host, port = rest.rsplit(":", 1)
             return net_link.NetworkLink(host, int(port))
         return net_link.NetworkLink(rest)
-    raise SystemExit(f"unknown --device spec '{spec}' (use serial | serial:PORT | tcp | tcp:HOST[:PORT])")
+    raise SystemExit(f"unknown --device spec '{spec}' (use auto | serial | serial:PORT | tcp | tcp:HOST[:PORT])")
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -578,7 +580,8 @@ def main() -> None:
     p.add_argument(
         "--device", default="serial",
         help="transport to the panel: 'serial' (default, auto-detect), 'serial:/dev/cu.xxx', "
-        "'tcp' (WiFi via mDNS claudemon.local), or 'tcp:HOST[:PORT]'",
+        "'tcp' (WiFi via mDNS claudemon.local), 'tcp:HOST[:PORT]', or 'auto' "
+        "(WiFi first, serial fallback — what the launchd agent uses)",
     )
     p.set_defaults(func=cmd_run)
 

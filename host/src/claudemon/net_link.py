@@ -24,6 +24,48 @@ DEFAULT_PORT = 8781
 RESPONSE_TIMEOUT_S = 3.0
 
 
+class AutoLink:
+    """Composite transport that tries several links in order and presents the
+    same DeviceLink interface. Used for `run --device auto`: WiFi first, serial
+    fallback. Each (re)connect re-tries from the top, so it re-prefers WiFi after
+    a drop or a serial-only start — the moment the panel is back on the network
+    the next reconnect moves back to WiFi."""
+
+    def __init__(self, links: list) -> None:
+        self._links = links
+        self._active = None
+
+    @property
+    def connected(self) -> bool:
+        return self._active is not None and self._active.connected
+
+    @property
+    def port(self):
+        return self._active.port if self._active is not None else "auto"
+
+    def connect(self) -> bool:
+        for link in self._links:
+            if link.connect():
+                self._active = link
+                log.info("auto: using %s (%s)", type(link).__name__, link.port)
+                return True
+        self._active = None
+        return False
+
+    def close(self) -> None:
+        for link in self._links:
+            link.close()
+        self._active = None
+
+    def send_command(self, command: dict) -> dict | None:
+        if self._active is None:
+            return None
+        resp = self._active.send_command(command)
+        if resp is None and not self._active.connected:
+            self._active = None   # dropped — next connect() re-selects (WiFi first)
+        return resp
+
+
 class NetworkLink:
     def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
         self._host = host
