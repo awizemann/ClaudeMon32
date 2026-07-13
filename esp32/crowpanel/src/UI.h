@@ -21,3 +21,4 @@ void ui_set_live(bool live);          // gate live ticking (default live)
 
 void ui_set_stale(bool stale);        // overlay the STALE banner
 void ui_set_brightness(uint8_t pct);  // 0-100 dim overlay (100 = no dim)
+void ui_set_wifi(bool connected);     // show/hide the header WiFi icon

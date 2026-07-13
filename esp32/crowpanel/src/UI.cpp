@@ -46,6 +46,7 @@ static lv_obj_t* s_homeDate  = nullptr;
 static lv_obj_t* s_pill      = nullptr;           // status pill container
 static lv_obj_t* s_pillDot   = nullptr;
 static lv_obj_t* s_pillTxt   = nullptr;
+static lv_obj_t* s_wifiHome  = nullptr;           // WiFi icon (shown when associated)
 
 // Page header widgets.
 static lv_obj_t* s_pageTitle = nullptr;
@@ -53,6 +54,8 @@ static lv_obj_t* s_pageSub   = nullptr;
 static lv_obj_t* s_liveDot   = nullptr;
 static lv_obj_t* s_liveTxt   = nullptr;
 static lv_obj_t* s_pageClock = nullptr;
+static lv_obj_t* s_wifiPage  = nullptr;
+static int       s_wifiState = -1;                // -1 unknown, 0 down, 1 up
 
 static lv_obj_t* s_stale     = nullptr;           // STALE banner overlay
 static lv_obj_t* s_dim       = nullptr;           // brightness dim overlay
@@ -345,6 +348,37 @@ static void onPagerNext(lv_event_t*) {
 
 // ----------------------------------------------------------------- chrome
 
+// A small WiFi "signal bars" icon (3 ascending bars), drawn from rectangles so
+// it renders regardless of whether the font carries the FontAwesome symbols
+// (ours doesn't — LV_SYMBOL_WIFI came out blank). The box is a FIXED size with
+// absolutely-positioned bars: a SIZE_CONTENT box collapses to zero inside the
+// header's nested SIZE_CONTENT flex row (the same trap that hid the clock).
+// The caller pins it as a FLOATING, absolutely-aligned overlay so it sidesteps
+// the header's flex cluster entirely (SIZE_CONTENT children there collapse to
+// zero — that's what hid both this and the status pill). ui_set_wifi shows/hides
+// it with the HIDDEN flag; being floating, that never triggers a flex relayout.
+static lv_obj_t* wifiBars(lv_obj_t* parent, lv_color_t color) {
+    lv_obj_t* box = lv_obj_create(parent);
+    lv_obj_set_size(box, 15, 14);
+    lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(box, 0, 0);
+    lv_obj_set_style_pad_all(box, 0, 0);
+    lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    const int hs[3] = {5, 9, 13};
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t* bar = lv_obj_create(box);
+        lv_obj_set_size(bar, 3, hs[i]);
+        lv_obj_set_style_bg_color(bar, color, 0);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(bar, 0, 0);
+        lv_obj_set_style_radius(bar, 1, 0);
+        lv_obj_set_style_pad_all(bar, 0, 0);
+        lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(bar, LV_ALIGN_BOTTOM_LEFT, i * 5, 0);   // 3px bar + 2px gap
+    }
+    return box;
+}
+
 // Build both header variants (home + page) once; applyChrome() shows one.
 static void buildHeaders(lv_obj_t* scr) {
     // --- Home variant ---
@@ -363,6 +397,13 @@ static void buildHeaders(lv_obj_t* scr) {
     lv_obj_t* right = flexBox(s_hdrHome, LV_FLEX_FLOW_ROW, 14);
     lv_obj_set_flex_align(right, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_size(right, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+
+    // WiFi icon — a FLOATING overlay pinned just left of the clock (absolute, so
+    // the header's flex cluster can't collapse it). Hidden until associated.
+    s_wifiHome = wifiBars(s_hdrHome, COL_GOOD);
+    lv_obj_add_flag(s_wifiHome, LV_OBJ_FLAG_FLOATING);
+    lv_obj_align(s_wifiHome, LV_ALIGN_TOP_RIGHT, -112, 19);
+    lv_obj_add_flag(s_wifiHome, LV_OBJ_FLAG_HIDDEN);
 
     // Status pill (dot + text on a tile pill).
     s_pill = flexBox(right, LV_FLEX_FLOW_ROW, 6);
@@ -430,6 +471,7 @@ static void buildHeaders(lv_obj_t* scr) {
     lv_obj_t* pright = flexBox(s_hdrPage, LV_FLEX_FLOW_ROW, 12);
     lv_obj_set_size(pright, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_align(pright, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    // (Home header carries the WiFi icon; drill-in pages show the LIVE dot.)
     lv_obj_t* livebox = flexBox(pright, LV_FLEX_FLOW_ROW, 6);
     lv_obj_set_size(livebox, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_align(livebox, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -1156,6 +1198,20 @@ void ui_set_stale(bool stale) {
     if (!s_stale) return;
     if (stale) lv_obj_clear_flag(s_stale, LV_OBJ_FLAG_HIDDEN);
     else       lv_obj_add_flag(s_stale, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ui_set_wifi(bool connected) {
+    // Show the header WiFi bars only while associated. The icon is a FLOATING
+    // overlay, so toggling HIDDEN doesn't disturb the header's flex layout.
+    // Guarded so the 1 Hz caller only acts on a real state change.
+    int state = connected ? 1 : 0;
+    if (state == s_wifiState) return;
+    s_wifiState = state;
+    for (lv_obj_t* icon : {s_wifiHome, s_wifiPage}) {
+        if (!icon) continue;
+        if (connected) lv_obj_clear_flag(icon, LV_OBJ_FLAG_HIDDEN);
+        else           lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void ui_set_brightness(uint8_t pct) {

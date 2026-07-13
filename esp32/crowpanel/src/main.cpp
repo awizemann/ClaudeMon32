@@ -30,6 +30,7 @@ static bool      g_staleShown    = false;
 // the UI's live/paused flag (default live).
 static void tick1hz(lv_timer_t*) {
     ui_tick_1hz();
+    ui_set_wifi(net_wifi_up());   // reflect WiFi association in the header icon
 }
 
 // Dispatch one command line and write the reply to `out` — Serial for the USB
