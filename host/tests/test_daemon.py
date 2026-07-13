@@ -109,22 +109,26 @@ class TestSettingsIntoPayload:
 
 
 class TestComparable:
-    def _payload(self, base, updated, fh_sec, fh_pct=50):
+    def _payload(self, base, updated, fh_sec, fh_rst="1H00M", fh_pct=50):
         return {
             "params": {
                 "base": base,
                 "updated": updated,
                 "anthropic": {
-                    "accounts": [{"label": "A", "fh_sec": fh_sec, "fh_pct": fh_pct}]
+                    "accounts": [
+                        {"label": "A", "fh_sec": fh_sec, "fh_rst": fh_rst, "fh_pct": fh_pct}
+                    ]
                 },
                 "cloudflare": {"sites": []},
             }
         }
 
-    def test_ignores_base_updated_and_fh_sec(self):
-        a = self._payload(base=100, updated="14:32", fh_sec=3600)
-        b = self._payload(base=200, updated="14:33", fh_sec=3599)
-        # Only the live-tick fields differ -> comparable strings match.
+    def test_ignores_live_tick_fields(self):
+        # base (clock seed), updated (HH:MM), and each account's fh_sec AND
+        # fh_rst all tick every minute but are re-derived on-device — none may
+        # count as a content change (else change-detection pushes every cycle).
+        a = self._payload(base=100, updated="14:32", fh_sec=3600, fh_rst="1H00M")
+        b = self._payload(base=200, updated="14:33", fh_sec=3599, fh_rst="0H59M")
         assert daemon._comparable(a) == daemon._comparable(b)
 
     def test_real_content_change_is_detected(self):
@@ -133,12 +137,14 @@ class TestComparable:
         assert daemon._comparable(a) != daemon._comparable(b)
 
     def test_does_not_mutate_the_push_payload(self):
-        p = self._payload(base=100, updated="14:32", fh_sec=3600)
+        p = self._payload(base=100, updated="14:32", fh_sec=3600, fh_rst="1H00M")
         daemon._comparable(p)
-        # base/updated/fh_sec must survive so the real push still carries them.
+        # every excluded field must survive so the real push still carries them.
         assert p["params"]["base"] == 100
         assert p["params"]["updated"] == "14:32"
-        assert p["params"]["anthropic"]["accounts"][0]["fh_sec"] == 3600
+        card = p["params"]["anthropic"]["accounts"][0]
+        assert card["fh_sec"] == 3600
+        assert card["fh_rst"] == "1H00M"
 
 
 # --------------------------------------------------------- change-detection + heartbeat loop

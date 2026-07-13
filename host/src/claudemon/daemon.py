@@ -52,15 +52,21 @@ def _refresh_interval() -> float:
 
 def _comparable(payload: dict) -> str:
     """Serialize the cockpit params for change-detection, excluding the live-tick
-    fields that change every fetch — `base` (header clock seed), `updated` (the
-    HH:MM string), and each account's `fh_sec` (seconds-to-reset). Without this
-    the clock alone would force a push every cycle; with it, only real content
-    changes (percents, countdown strings, counts) trigger an early push."""
+    fields the device re-derives locally every second: `base` (header clock
+    seed), `updated` (the HH:MM string), and each account's `fh_sec` AND `fh_rst`
+    — the seconds-to-5h-reset and its rendered "3H14M" string. The device counts
+    down from `fh_sec` at 1 Hz (UI.cpp) and never displays the host's `fh_rst`,
+    so both tick every minute without being meaningful content. Leaving `fh_rst`
+    in (the original bug) made it differ every cycle, forcing a content push
+    ~once a minute and defeating change-detection. With both excluded, only real
+    movement — percents, counts, the renewal day, alerts — triggers an early
+    push; otherwise the 5-min heartbeat carries the frame."""
     params = json.loads(json.dumps(payload["params"]))  # deep copy; don't mutate the push payload
     params.pop("base", None)
     params.pop("updated", None)
     for card in params.get("anthropic", {}).get("accounts", []):
         card.pop("fh_sec", None)
+        card.pop("fh_rst", None)
     return json.dumps(params, sort_keys=True)
 
 
