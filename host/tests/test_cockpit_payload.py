@@ -50,10 +50,17 @@ class TestStructure:
         card = p["anthropic"]["accounts"][0]
         assert set(card) == {
             "label", "fh_pct", "fh_rst", "fh_sec", "wk_pct", "wk_rnw",
-            "plan", "msgs", "act", "st",
+            "ws_pct", "sev", "st",
         }
         # accounts are sorted by label -> Personal, Studio, Work
         assert [c["label"] for c in p["anthropic"]["accounts"]] == ["PERSONAL", "STUDIO", "WORK"]
+
+    def test_severity_badge_from_server(self, accounts, zones, repos):
+        # Work carries a server "warning" on its weekly windows; others are clear.
+        cards = {c["label"]: c for c in _build(accounts, zones, repos)["params"]["anthropic"]["accounts"]}
+        assert cards["WORK"]["sev"] == "warning"
+        assert cards["PERSONAL"]["sev"] == ""   # all-normal -> no badge
+        assert cards["WORK"]["ws_pct"] == 81     # scoped-weekly gauge carried through
 
     def test_cloudflare_totals_and_down_count(self, accounts, zones, repos):
         cf = _build(accounts, zones, repos)["params"]["cloudflare"]
@@ -88,7 +95,7 @@ class TestHostRenderedContract:
         p = _build(accounts, zones, repos)["params"]
         card = p["anthropic"]["accounts"][0]
         assert isinstance(card["fh_pct"], int)
-        assert all(isinstance(v, int) for v in card["act"])
+        assert isinstance(card["ws_pct"], int)
         assert isinstance(p["cloudflare"]["totals"]["cache"], int)
 
 
@@ -170,23 +177,21 @@ class TestUnknownData:
         card = _build([acct], zones, repos)["params"]["anthropic"]["accounts"][0]
         assert card["fh_pct"] == -1
         assert card["fh_rst"] == ""
-        assert card["msgs"] == ""
-        assert card["act"] == []
-        assert card["plan"] == ""
+        assert card["ws_pct"] == -1   # no scoped window -> blank
+        assert card["sev"] == ""      # no severity -> no badge
 
 
 class TestPayloadSize:
     def test_worst_case_under_16384(self):
-        """Realistic worst case: 3 accounts (full 24-bar histograms + long
-        labels), 12 sites, 4 products, 6 repos, and a full alerts array.
-        Serialized size must sit under the firmware's 16384-byte line cap."""
-        hist = [99] * 24  # dense two-digit histogram (worst-case digits)
+        """Realistic worst case: 3 accounts (full gauges, long labels, severity),
+        12 sites, 4 products, 6 repos, and a full alerts array. Serialized size
+        must sit under the firmware's 16384-byte line cap."""
         accounts = [
             AccountUsage(
                 label="LONGACCOUNTNAME",  # gets clipped to 10, but exercise it
-                five_hour=WindowUsage(pct=88, resets_at=NOW + timedelta(hours=4)),
-                week=WindowUsage(pct=99, resets_at=NOW + timedelta(days=3)),
-                plan="Max 20×", messages=123456, activity=hist,
+                five_hour=WindowUsage(pct=88, resets_at=NOW + timedelta(hours=4), severity="warning"),
+                week=WindowUsage(pct=99, resets_at=NOW + timedelta(days=3), severity="critical"),
+                week_scoped=WindowUsage(pct=97, resets_at=NOW + timedelta(days=3), severity="warning"),
             )
             for _ in range(3)
         ]

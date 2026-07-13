@@ -1,6 +1,6 @@
-"""Tests for the new cockpit formatters (money, signed pct, activity histogram,
-seconds-remaining). The existing fmt_count/fmt_bytes/fmt_relative are reused
-unchanged and covered indirectly by the payload tests."""
+"""Tests for the new cockpit formatters (money, signed pct, seconds-remaining).
+The existing fmt_count/fmt_bytes/fmt_relative are reused unchanged and covered
+indirectly by the payload tests."""
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ from datetime import timedelta
 import pytest
 
 from claudemon.render import (
-    ACTIVITY_BUCKETS,
-    activity_norm,
     fmt_money,
     fmt_signed_pct,
     secs_remaining,
@@ -50,32 +48,6 @@ class TestFmtSignedPct:
 
     def test_zero_is_signed(self):
         assert fmt_signed_pct(0) == "+0%"
-
-
-class TestActivityNorm:
-    def test_empty_series(self):
-        assert activity_norm([]) == []
-
-    def test_all_zero_is_empty(self):
-        # No activity at all -> device hides the panel rather than drawing 24 zeros.
-        assert activity_norm([0] * 24) == []
-
-    def test_normalizes_to_peak(self):
-        out = activity_norm([1, 2, 4])  # peak 4
-        assert out[-3:] == [25, 50, 100]
-
-    def test_pads_to_24(self):
-        out = activity_norm([10, 20])
-        assert len(out) == ACTIVITY_BUCKETS
-        assert out[:-2] == [0] * 22
-        assert out[-2:] == [50, 100]
-
-    def test_clips_long_series_to_tail(self):
-        out = activity_norm(list(range(1, 49)))  # 48 entries, peak 48
-        assert len(out) == ACTIVITY_BUCKETS
-        # keeps the last 24 (25..48), normalized to 48
-        assert out[-1] == 100
-        assert out[0] == round(100 * 25 / 48)
 
 
 class TestSecsRemaining:

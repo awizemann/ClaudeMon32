@@ -32,30 +32,38 @@ def _account(
     fh_in_min: int | None,
     wk_pct: int | None,
     *,
-    plan: str | None = None,
-    messages: int | None = None,
-    activity: list[int] | None = None,
+    ws_pct: int | None = None,
+    fh_sev: str | None = None,
+    wk_sev: str | None = None,
+    ws_sev: str | None = None,
     state: AccountState = AccountState.OK,
 ) -> AccountUsage:
     fh = WindowUsage(
         pct=fh_pct,
         resets_at=NOW + timedelta(minutes=fh_in_min) if fh_in_min is not None else None,
+        severity=fh_sev,
     )
-    wk = WindowUsage(pct=wk_pct, resets_at=NOW + timedelta(days=3) if wk_pct is not None else None)
-    return AccountUsage(
-        label=label, five_hour=fh, week=wk, state=state,
-        plan=plan, messages=messages, activity=activity or [],
+    wk = WindowUsage(
+        pct=wk_pct,
+        resets_at=NOW + timedelta(days=3) if wk_pct is not None else None,
+        severity=wk_sev,
     )
+    ws = WindowUsage(
+        pct=ws_pct,
+        resets_at=NOW + timedelta(days=3) if ws_pct is not None else None,
+        severity=ws_sev,
+    )
+    return AccountUsage(label=label, five_hour=fh, week=wk, week_scoped=ws, state=state)
 
 
 @pytest.fixture
 def accounts() -> list[AccountUsage]:
-    """3 Max accounts matching the handoff example figures."""
-    hist = list(range(1, 25))  # ramping 1..24 messages/hour
+    """3 accounts matching the handoff example figures, with a scoped-weekly
+    gauge and a server severity on the busiest one (Work at warning)."""
     return [
-        _account("Personal", 46, 133, 61, plan="Max 5×", messages=128, activity=hist),
-        _account("Work", 88, 62, 74, plan="Max 20×", messages=412, activity=hist),
-        _account("Studio", 22, 228, 39, plan="Max 20×", messages=95, activity=hist),
+        _account("Personal", 46, 133, 61, ws_pct=40),
+        _account("Work", 88, 62, 74, ws_pct=81, wk_sev="warning", ws_sev="warning"),
+        _account("Studio", 22, 228, 39, ws_pct=15),
     ]
 
 

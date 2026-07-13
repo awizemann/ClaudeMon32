@@ -34,7 +34,6 @@ MAX_COCKPIT_PRODUCTS = 4   # 2x2 product grid
 MAX_COCKPIT_REPOS = 6      # repo list rows
 MAX_COCKPIT_ALERTS = 8     # alerts panel is scrollable but we cap the payload
 
-ACTIVITY_BUCKETS = 24      # one bar per hour, messages/hour histogram
 
 
 def fmt_countdown(resets_at: datetime | None, now: datetime) -> str:
@@ -158,21 +157,6 @@ def fmt_signed_pct(n: int | None) -> str:
     return f"{n:+d}%"
 
 
-def activity_norm(series: list[int]) -> list[int]:
-    """Normalize a 24-hour messages/hour histogram to 0-100 (share of its own
-    peak) for the device. Always returns exactly 24 entries: a shorter series is
-    left-padded with zeros (oldest hours), a longer one is tail-clipped. Returns
-    [] only when there's no data at all, so the device can hide the panel."""
-    if not series or max(series) <= 0:
-        return []
-    tail = series[-ACTIVITY_BUCKETS:]
-    peak = max(tail)
-    normed = [round(100 * v / peak) for v in tail]
-    if len(normed) < ACTIVITY_BUCKETS:
-        normed = [0] * (ACTIVITY_BUCKETS - len(normed)) + normed
-    return normed
-
-
 def secs_remaining(resets_at: datetime | None, now: datetime) -> int:
     """Integer seconds until a reset, for the device to count down locally.
     -1 when unknown (no reset time); 0 when already elapsed. This is the ONE
@@ -286,10 +270,28 @@ class AlertLevel(IntEnum):
 DEFAULT_USAGE_THRESHOLD = 80
 
 
+# Server severity ranking (from the usage endpoint's limits[]). Only warning
+# and worse surface as a card badge; "normal"/unknown map to "" (no badge).
+_SEVERITY_RANK = {"warning": 1, "critical": 2, "exceeded": 3}
+
+
+def worst_severity(*windows) -> str:
+    """The most severe server-reported severity across the given windows, or ""
+    when they're all normal/unknown. Drives the card's alert badge."""
+    worst, rank = "", 0
+    for w in windows:
+        r = _SEVERITY_RANK.get((w.severity or "").lower(), 0)
+        if r > rank:
+            worst, rank = w.severity.lower(), r
+    return worst
+
+
 def _cockpit_account(snap: AccountUsage, now: datetime) -> dict:
-    """One Anthropic account card for the cockpit. Extends the classic claude
-    row with the plan chip, message count, activity histogram, and the numeric
-    seconds-to-5h-reset the device counts down locally."""
+    """One Anthropic account card for the cockpit. Carries the 5h + weekly + the
+    scoped-weekly gauges, the numeric seconds-to-5h-reset the device counts down
+    locally, the weekly renewal string, and the server's worst-window severity
+    (the alert badge). No plan/messages/activity — the usage endpoint has no
+    source for those (verified across accounts)."""
     return {
         "label": snap.label.upper()[:MAX_LABEL_LEN],
         "fh_pct": _pct_or_unknown(snap.five_hour),
@@ -297,9 +299,8 @@ def _cockpit_account(snap: AccountUsage, now: datetime) -> dict:
         "fh_sec": secs_remaining(snap.five_hour.resets_at, now),
         "wk_pct": _pct_or_unknown(snap.week),
         "wk_rnw": fmt_renewal(snap.week.resets_at, now),
-        "plan": snap.plan or "",
-        "msgs": fmt_count(snap.messages),
-        "act": activity_norm(snap.activity),
+        "ws_pct": _pct_or_unknown(snap.week_scoped),
+        "sev": worst_severity(snap.five_hour, snap.week, snap.week_scoped),
         "st": snap.state.value,
     }
 

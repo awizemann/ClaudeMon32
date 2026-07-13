@@ -153,8 +153,7 @@ Keys are **abbreviated** to keep the line under the cap with worst-case data
      "date":"Sun 12 Jul",
      "anthropic":{"accounts":[
        {"label":"WORK","fh_pct":88,"fh_rst":"1H02M","fh_sec":3720,
-        "wk_pct":74,"wk_rnw":"WED 8PM (3D)","plan":"Max 20×","msgs":"412",
-        "act":[4,8,12,17,21,25,29,33,38,42,46,50,54,58,62,67,71,75,79,83,88,92,96,100],
+        "wk_pct":74,"wk_rnw":"WED 8PM (3D)","ws_pct":81,"sev":"warning",
         "st":"ok"}
      ]},
      "cloudflare":{
@@ -209,12 +208,15 @@ Keys are **abbreviated** to keep the line under the cap with worst-case data
 | `fh_pct` | int | 5-hour utilization 0–100; **-1 = unknown** |
 | `fh_rst` | string | Host-rendered 5h countdown ("1H02M"); "" unknown |
 | `fh_sec` | int | **Live-tick:** integer seconds to the 5h reset; the device counts it down. **-1 = unknown**, 0 = elapsed |
-| `wk_pct` | int | Weekly utilization 0–100; -1 unknown |
+| `wk_pct` | int | Weekly (overall / `weekly_all`) utilization 0–100; -1 unknown |
 | `wk_rnw` | string | Host-rendered weekly renewal ("WED 8PM (3D)") |
-| `plan` | string | Subscription chip ("Max 5×" / "Max 20×"); "" unknown |
-| `msgs` | string | Host-formatted message count in the 5h window; "" unknown |
-| `act` | int[] | 24-bucket messages/hour histogram, **each 0–100** (host-normalized to the day's peak), oldest hour first. `[]` = no data |
+| `ws_pct` | int | Scoped-weekly (`weekly_scoped`) utilization 0–100; **-1 = unknown/absent** |
+| `sev` | string | Worst server-reported severity across the account's windows (`"warning"` / `"critical"` / `"exceeded"`); **`""` = normal/none → no badge**. Server-authoritative, from the usage endpoint's `limits[]`. |
 | `st` | string | `ok` \| `auth` \| `err` \| `drift` |
+
+> Note: the usage endpoint exposes no plan tier, message count, or per-hour
+> activity series (verified across accounts), so the card carries none — earlier
+> `plan`/`msgs`/`act` fields were demo-only and were removed.
 
 **`cloudflare.totals`** — `req`/`bw`/`threats` are host-formatted strings ("" unknown); `cache` is an int 0–100 (**-1 unknown**), a request-weighted hit ratio.
 

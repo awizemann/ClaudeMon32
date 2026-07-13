@@ -57,6 +57,10 @@ class AccountCredentials:
 class WindowUsage:
     pct: int | None = None            # 0-100, None = unknown
     resets_at: datetime | None = None
+    # Server-reported severity for this window, from the usage endpoint's
+    # limits[] ("normal" / "warning" / ...). None = unknown/absent. This is
+    # authoritative — preferred over the client's own pct threshold.
+    severity: str | None = None
 
     @property
     def known(self) -> bool:
@@ -66,32 +70,30 @@ class WindowUsage:
 @dataclass
 class AccountUsage:
     label: str
-    five_hour: WindowUsage = field(default_factory=WindowUsage)
-    week: WindowUsage = field(default_factory=WindowUsage)
+    five_hour: WindowUsage = field(default_factory=WindowUsage)   # "session" limit
+    week: WindowUsage = field(default_factory=WindowUsage)        # "weekly_all" limit
+    # The scoped weekly limit ("weekly_scoped"), distinct from the overall
+    # weekly window — the endpoint reports it separately in limits[]. Empty
+    # WindowUsage when the account has no scoped cap.
+    week_scoped: WindowUsage = field(default_factory=WindowUsage)
     state: AccountState = AccountState.OK
     fetched_at: datetime | None = None
-    plan: str | None = None            # subscription tier chip, e.g. "Max 5x" / "Max 20x"
-    messages: int | None = None        # messages sent in the current 5h window
-    # Per-hour message counts for the last 24 hours, oldest first (24 entries).
-    # Empty when unknown; the host normalizes this to 0-100 for the device.
-    activity: list[int] = field(default_factory=list)
 
     def to_state_dict(self) -> dict:
         def win(w: WindowUsage) -> dict:
             return {
                 "pct": w.pct,
                 "resets_at": w.resets_at.isoformat() if w.resets_at else None,
+                "severity": w.severity,
             }
 
         return {
             "label": self.label,
             "five_hour": win(self.five_hour),
             "week": win(self.week),
+            "week_scoped": win(self.week_scoped),
             "state": self.state.value,
             "fetched_at": self.fetched_at.isoformat() if self.fetched_at else None,
-            "plan": self.plan,
-            "messages": self.messages,
-            "activity": self.activity,
         }
 
 

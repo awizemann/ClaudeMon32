@@ -86,9 +86,22 @@ def fetch_usage(label: str, creds: AccountCredentials) -> AccountUsage:
 
 def parse_usage(label: str, data: dict) -> AccountUsage:
     """Parse the verified schema. Never raises; flags DRIFT when a window
-    can't be found in either the top-level objects or the limits[] array."""
-    five_hour = _parse_window(data.get("five_hour")) or _find_limit(data, ("session",))
-    week = _parse_window(data.get("seven_day")) or _find_limit(data, ("weekly_all",))
+    can't be found in either the top-level objects or the limits[] array.
+
+    Each window's pct/resets_at come from the top-level object when present
+    (falling back to its limits[] entry), and its `severity` comes from the
+    matching limits[] entry — the server's own classification, which the device
+    prefers over a client-side pct threshold. The scoped weekly limit
+    ("weekly_scoped") has no top-level object and is read from limits[] only."""
+    by_kind: dict[str, dict] = {}
+    for entry in data.get("limits") or []:
+        kind = entry.get("kind") if isinstance(entry, dict) else None
+        if kind and kind not in by_kind:
+            by_kind[kind] = entry
+
+    five_hour = _window(data.get("five_hour"), by_kind.get("session"))
+    week = _window(data.get("seven_day"), by_kind.get("weekly_all"))
+    week_scoped = _window(None, by_kind.get("weekly_scoped"))
 
     drift = five_hour is None or week is None
     if drift:
@@ -102,36 +115,41 @@ def parse_usage(label: str, data: dict) -> AccountUsage:
         label=label,
         five_hour=five_hour or WindowUsage(),
         week=week or WindowUsage(),
+        week_scoped=week_scoped or WindowUsage(),
         state=AccountState.DRIFT if drift else AccountState.OK,
         fetched_at=utcnow(),
     )
 
 
-def _parse_window(node) -> WindowUsage | None:
-    """Top-level window object: {"utilization": 0-100, "resets_at": ISO}."""
-    if not isinstance(node, dict):
-        return None
-    utilization = node.get("utilization")
-    pct = _normalize_pct(utilization) if isinstance(utilization, (int, float)) else None
-    resets_at = _parse_timestamp(node.get("resets_at"))
-    if pct is None and resets_at is None:
-        return None
-    return WindowUsage(pct=pct, resets_at=resets_at)
+def _window(node, limit) -> WindowUsage | None:
+    """Merge one usage window from its top-level object and its limits[] entry.
 
+    `node` is the top-level `{"utilization", "resets_at"}` object (or None) and
+    `limit` is the matching `{"percent", "resets_at", "severity"}` limits[] entry
+    (or None). pct/resets_at prefer the object and fall back to the limit;
+    severity comes from the limit. Returns None only when nothing at all was
+    found (so a missing scoped limit stays empty without tripping drift)."""
+    pct: int | None = None
+    resets_at = None
+    severity: str | None = None
 
-def _find_limit(data: dict, kinds: tuple[str, ...]) -> WindowUsage | None:
-    """Fallback: the "limits" array ({"kind", "percent", "resets_at"} entries)."""
-    limits = data.get("limits")
-    if not isinstance(limits, list):
+    if isinstance(node, dict):
+        utilization = node.get("utilization")
+        if isinstance(utilization, (int, float)):
+            pct = _normalize_pct(utilization)
+        resets_at = _parse_timestamp(node.get("resets_at"))
+
+    if isinstance(limit, dict):
+        if pct is None and isinstance(limit.get("percent"), (int, float)):
+            pct = _normalize_pct(limit["percent"])
+        if resets_at is None:
+            resets_at = _parse_timestamp(limit.get("resets_at"))
+        if isinstance(limit.get("severity"), str):
+            severity = limit["severity"]
+
+    if pct is None and resets_at is None and severity is None:
         return None
-    for entry in limits:
-        if isinstance(entry, dict) and entry.get("kind") in kinds:
-            pct = entry.get("percent")
-            return WindowUsage(
-                pct=_normalize_pct(pct) if isinstance(pct, (int, float)) else None,
-                resets_at=_parse_timestamp(entry.get("resets_at")),
-            )
-    return None
+    return WindowUsage(pct=pct, resets_at=resets_at, severity=severity)
 
 
 def _normalize_pct(value: float) -> int:
