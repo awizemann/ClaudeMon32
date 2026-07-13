@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_PORT = 8770
 DEFAULT_HOST = "0.0.0.0"
+MDNS_NAME = "claudemon-admin"   # advertised as claudemon-admin.local on the LAN
 
 # The three global-token services (Anthropic is per-account OAuth, handled apart).
 _TOKEN_SERVICES = ("cloudflare", "github", "paddle")
@@ -393,17 +394,27 @@ def serve(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     shown_host = "localhost" if host in ("0.0.0.0", "") else host
     log.info("admin server bound to %s:%s", host, port)
     print(f"ClaudeMon admin on http://{shown_host}:{port}/")
+    zc = info = None
     if host in ("0.0.0.0", ""):
+        zc, info = _advertise_mdns(port)
+        if zc is not None:
+            print(f"  by name (any device on your network): http://{MDNS_NAME}.local:{port}/")
         lan = _lan_ip()
         if lan:
-            print(f"  reachable on the LAN at http://{lan}:{port}/")
-        print("  (bound to 0.0.0.0 — reachable by any host on your network)")
+            print(f"  or by IP: http://{lan}:{port}/")
     print("Press Ctrl-C to stop.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if zc is not None:
+            try:
+                if info is not None:
+                    zc.unregister_service(info)
+                zc.close()
+            except Exception:  # noqa: BLE001
+                pass
         httpd.server_close()
 
 
@@ -420,3 +431,31 @@ def _lan_ip() -> str | None:
         return None
     finally:
         s.close()
+
+
+def _advertise_mdns(port: int):
+    """Advertise the admin as `claudemon-admin.local` over mDNS/Bonjour so any
+    device on the LAN can reach it by name — no IP needed. Best-effort: returns
+    (None, None) if zeroconf is unavailable or the LAN IP can't be determined."""
+    ip = _lan_ip()
+    if not ip:
+        return None, None
+    try:
+        import socket
+
+        from zeroconf import ServiceInfo, Zeroconf
+
+        info = ServiceInfo(
+            "_http._tcp.local.",
+            "ClaudeMon Admin._http._tcp.local.",
+            addresses=[socket.inet_aton(ip)],
+            port=port,
+            server=f"{MDNS_NAME}.local.",
+        )
+        zc = Zeroconf()
+        zc.register_service(info)
+        log.info("admin: advertising mDNS %s.local -> %s", MDNS_NAME, ip)
+        return zc, info
+    except Exception as e:  # noqa: BLE001 — advertisement is a nicety, never fatal
+        log.warning("admin: mDNS advertise failed: %s", e)
+        return None, None
