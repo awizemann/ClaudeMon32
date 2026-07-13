@@ -14,17 +14,24 @@ static const char*    NVS_NS     = "claudemon";
 static Preferences    s_prefs;
 static WiFiServer     s_server(CMD_PORT);
 static WiFiClient     s_client;
-static NetLineHandler s_handler   = nullptr;
+static NetLineHandler s_handler    = nullptr;
 static String         s_rx;
 static bool           s_servicesUp = false;
+static bool           s_serverBegun = false;
+static bool           s_haveCreds  = false;
 
 static void startServices() {
-    // Bring up the TCP server + mDNS once, on first association.
-    s_server.begin();
-    s_server.setNoDelay(true);
+    // TCP server is begun once; mDNS is (re)advertised on every association so
+    // the name resolves again after a WiFi drop/reconnect.
+    if (!s_serverBegun) {
+        s_server.begin();
+        s_server.setNoDelay(true);
+        s_serverBegun = true;
+    }
+    MDNS.end();   // clear any stale responder from a previous association
     if (MDNS.begin(MDNS_HOST)) {
         MDNS.addService("claudemon", "tcp", CMD_PORT);
-        Serial.printf("[NET] mDNS: %s.local, cmd port %u\n", MDNS_HOST, CMD_PORT);
+        Serial.printf("[NET] mDNS: %s.local:%u\n", MDNS_HOST, CMD_PORT);
     } else {
         Serial.println("[NET] mDNS start failed");
     }
@@ -38,8 +45,10 @@ void net_init(NetLineHandler handler) {
     String pass = s_prefs.getString("wifi_pass", "");
 
     WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);   // keep the TCP server responsive
+    WiFi.setSleep(false);          // keep the TCP server responsive
+    WiFi.setAutoReconnect(true);   // rejoin after AP hiccups / band-steering
     if (ssid.length()) {
+        s_haveCreds = true;
         Serial.printf("[NET] connecting to '%s'...\n", ssid.c_str());
         WiFi.begin(ssid.c_str(), pass.c_str());
     } else {
@@ -50,6 +59,7 @@ void net_init(NetLineHandler handler) {
 void net_set_wifi(const String& ssid, const String& pass) {
     s_prefs.putString("wifi_ssid", ssid);
     s_prefs.putString("wifi_pass", pass);
+    s_haveCreds = true;
     Serial.printf("[NET] stored creds for '%s'; reconnecting\n", ssid.c_str());
     WiFi.disconnect(/*wifioff=*/false);
     WiFi.begin(ssid.c_str(), pass.c_str());
@@ -61,15 +71,28 @@ String net_ip() { return net_wifi_up() ? WiFi.localIP().toString() : String(); }
 
 void net_loop() {
     static bool wasUp = false;
+    static uint32_t lastRetry = 0;
     bool up = net_wifi_up();
     if (up && !wasUp) {
         Serial.printf("[NET] WiFi up, IP %s\n", WiFi.localIP().toString().c_str());
-        if (!s_servicesUp) startServices();
+        startServices();   // (re)advertise mDNS on every (re)association
     } else if (!up && wasUp) {
-        Serial.println("[NET] WiFi lost");
+        Serial.println("[NET] WiFi lost; retrying");
+        s_servicesUp = false;
     }
     wasUp = up;
-    if (!up || !s_servicesUp) return;
+
+    if (!up) {
+        // Nudge a reconnect periodically — auto-reconnect alone can give up on
+        // some APs (notably band-steering on a combined 2.4/5 GHz SSID).
+        uint32_t now = millis();
+        if (s_haveCreds && (now - lastRetry > 8000)) {
+            lastRetry = now;
+            WiFi.reconnect();
+        }
+        return;
+    }
+    if (!s_servicesUp) return;
 
     // Single active command client at a time (the host pushes serially). A new
     // connection replaces a stale one.
