@@ -240,27 +240,6 @@ static void sparkline(lv_obj_t* parent, const std::vector<uint8_t>& pts,
     }
 }
 
-// The Anthropic 24-bar activity histogram.
-static void histogram(lv_obj_t* parent, const std::vector<uint8_t>& pts,
-                      lv_color_t color, int height = 56) {
-    lv_obj_t* row = flexBox(parent, LV_FLEX_FLOW_ROW, 3);
-    lv_obj_set_size(row, lv_pct(100), height);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    if (pts.empty()) return;
-    for (uint8_t v : pts) {
-        lv_obj_t* b = lv_obj_create(row);
-        lv_obj_set_flex_grow(b, 1);
-        int bh = (int)(height * (v < 4 ? 4 : v) / 100);
-        if (bh < 2) bh = 2;
-        lv_obj_set_height(b, bh);
-        lv_obj_set_style_bg_color(b, color, 0);
-        lv_obj_set_style_bg_opa(b, LV_OPA_70, 0);
-        lv_obj_set_style_border_width(b, 0, 0);
-        lv_obj_set_style_radius(b, 2, 0);
-        lv_obj_set_style_pad_all(b, 0, 0);
-        lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
-    }
-}
 
 // A subscription/plan chip: accent text on a tinted pill.
 static void chip(lv_obj_t* parent, const char* text, lv_color_t txt, lv_color_t bg) {
@@ -400,12 +379,15 @@ static void buildHeaders(lv_obj_t* scr) {
     // WRAP mode could break "1 critical" across two lines and clip it to "ical".
     lv_label_set_long_mode(s_pillTxt, LV_LABEL_LONG_CLIP);
 
-    // Fixed-width clock column so the SIZE_CONTENT header can't collapse or
-    // overlap it (which was hiding the clock and squeezing the pill).
+    // Fixed-size clock column: a fixed HEIGHT (not SIZE_CONTENT) so the clock+
+    // date stack can't overflow and clip. SIZE_CONTENT under-computed here (the
+    // date label starts empty at build), and END-packing then pushed the clock
+    // out the top of the header, clipping it to a sliver. A fixed 46px box with
+    // the pair vertically centered leaves margin above and below both lines.
     lv_obj_t* clockcol = flexBox(right, LV_FLEX_FLOW_COLUMN, 0);
-    lv_obj_set_size(clockcol, 96, LV_SIZE_CONTENT);
-    lv_obj_set_flex_align(clockcol, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    s_homeClock = line(clockcol, "--:--", COL_TEXT, F20);
+    lv_obj_set_size(clockcol, 96, 46);
+    lv_obj_set_flex_align(clockcol, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    s_homeClock = line(clockcol, "--:--", COL_TEXT, F16);
     s_homeDate  = line(clockcol, "", COL_FAINT, F14);
     lv_label_set_long_mode(s_homeClock, LV_LABEL_LONG_CLIP);
     lv_label_set_long_mode(s_homeDate, LV_LABEL_LONG_CLIP);
@@ -632,10 +614,11 @@ static void fillHome() {
         else           snprintf(big, sizeof(big), "--");
         const char* nm = s_data.accounts.empty() ? "" : s_data.accounts[peakIdx].label.c_str();
         snprintf(label, sizeof(label), "%s - peak 5h window", nm);
-        snprintf(sub, sizeof(sub), "%d Max accounts", (int)s_data.accounts.size());
+        snprintf(sub, sizeof(sub), "%d accounts", (int)s_data.accounts.size());
         char st = (peak >= 80) ? 'g' : 'o';
-        const std::vector<uint8_t>& spk = s_data.accounts.empty() ?
-            std::vector<uint8_t>() : s_data.accounts[peakIdx].act;
+        // The usage endpoint has no per-account time series, so the Anthropic
+        // tile carries no trend sparkline.
+        const std::vector<uint8_t> spk;
         homeTile(cellA[0], SC_ANTHROPIC, st, "Anthropic", COL_ACCENT, big, label, spk, sub);
     }
     // --- Cloudflare tile: requests today, down/degraded sub ---
@@ -715,8 +698,11 @@ static void fillAnthropic() {
         lv_obj_set_size(top, lv_pct(100), LV_SIZE_CONTENT);
         lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         line(top, a.label.c_str(), COL_TEXT, F20);
-        if (a.plan.length())
-            chip(top, a.plan.c_str(), COL_ACCENT, lv_color_hex(0x241a17));
+        // Server-severity badge — only when the account is at warning or worse.
+        if (a.sev.length()) {
+            bool crit = (a.sev == "critical" || a.sev == "exceeded");
+            chip(top, crit ? "CRITICAL" : "WARNING", crit ? COL_CRIT : COL_AMBER, COL_SUNK);
+        }
 
         // Big usage % + caption.
         lv_obj_t* big = flexBox(c, LV_FLEX_FLOW_ROW, 6);
@@ -726,7 +712,8 @@ static void fillAnthropic() {
         if (a.fhPct >= 0) snprintf(pbuf, sizeof(pbuf), "%d%%", a.fhPct);
         else              snprintf(pbuf, sizeof(pbuf), "--");
         line(big, pbuf, usageColor(a.fhPct), F28);
-        line(big, "of 5h window", COL_MUTED, F14);
+        // The currently-binding window's caption is accented (server is_active).
+        line(big, "of 5h window", a.actv == "5h" ? COL_ACCENT : COL_MUTED, F14);
 
         progressBar(c, a.fhPct, usageColor(a.fhPct), 8);
 
@@ -734,12 +721,32 @@ static void fillAnthropic() {
         lv_obj_t* wk = flexBox(c, LV_FLEX_FLOW_ROW, 0);
         lv_obj_set_size(wk, lv_pct(100), LV_SIZE_CONTENT);
         lv_obj_set_flex_align(wk, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        line(wk, "Week", COL_MUTED, F14);
+        line(wk, "Week", a.actv == "week" ? COL_ACCENT : COL_MUTED, F14);
         char wbuf[8];
         if (a.wkPct >= 0) snprintf(wbuf, sizeof(wbuf), "%d%%", a.wkPct);
         else              snprintf(wbuf, sizeof(wbuf), "--");
         line(wk, wbuf, COL_TEXT, F14);
         progressBar(c, a.wkPct, COL_BLUE, 5);
+
+        // Scoped-weekly row — only when the account carries a scoped cap.
+        if (a.wsPct >= 0) {
+            lv_obj_t* ws = flexBox(c, LV_FLEX_FLOW_ROW, 0);
+            lv_obj_set_size(ws, lv_pct(100), LV_SIZE_CONTENT);
+            lv_obj_set_flex_align(ws, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            line(ws, "Scoped", a.actv == "scoped" ? COL_ACCENT : COL_MUTED, F14);
+            char sbuf[8]; snprintf(sbuf, sizeof(sbuf), "%d%%", a.wsPct);
+            line(ws, sbuf, COL_TEXT, F14);
+            progressBar(c, a.wsPct, COL_BLUE, 5);
+        }
+
+        // Extra-usage credits line — only when the account has credits enabled.
+        if (a.cred.length()) {
+            lv_obj_t* cr = flexBox(c, LV_FLEX_FLOW_ROW, 0);
+            lv_obj_set_size(cr, lv_pct(100), LV_SIZE_CONTENT);
+            lv_obj_set_flex_align(cr, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            line(cr, "Credits", COL_MUTED, F14);
+            line(cr, a.cred.c_str(), COL_GOOD, F14);
+        }
 
         // Spacer, then footer.
         lv_obj_t* spacer = flexBox(c, LV_FLEX_FLOW_COLUMN, 0);
@@ -765,60 +772,12 @@ static void fillAnthropic() {
         lv_obj_t* rv = line(rin, rbuf, COL_TEXT, F16);
         if (i < MAX_ACCOUNTS) s_resetLbl[i] = rv;   // live-tick handle
 
-        lv_obj_t* msg = flexBox(foot, LV_FLEX_FLOW_COLUMN, 0);
-        lv_obj_set_size(msg, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_set_flex_align(msg, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-        microLabel(msg, "MESSAGES", COL_FAINT);
-        rlabel(msg, a.msgs.length() ? a.msgs.c_str() : "--", COL_TEXT, F16);
+        lv_obj_t* rnw = flexBox(foot, LV_FLEX_FLOW_COLUMN, 0);
+        lv_obj_set_size(rnw, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_flex_align(rnw, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+        microLabel(rnw, "RENEWS", COL_FAINT);
+        rlabel(rnw, a.wkRenew.length() ? a.wkRenew.c_str() : "--", COL_TEXT, F16);
     }
-
-    // Activity panel: header + total, 24-bar histogram, axis row.
-    lv_obj_t* act = well(page, 14);
-    lv_obj_set_width(act, lv_pct(100));
-    lv_obj_set_height(act, LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_all(act, 12, 0);
-
-    lv_obj_t* ah = flexBox(act, LV_FLEX_FLOW_ROW, 0);
-    lv_obj_set_size(ah, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_align(ah, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    line(ah, "ACTIVITY - messages / hour", COL_MUTED, F14);
-    // "Today <n>": sum the per-account message counts that parse as plain ints
-    // (host formats compact ones like "1.2K"; those we can't sum, so we skip the
-    // figure entirely rather than show a wrong total).
-    {
-        long total = 0; bool summable = !s_data.accounts.empty();
-        for (const AccountRow& a : s_data.accounts) {
-            const char* m = a.msgs.c_str();
-            if (!m[0]) continue;
-            char* endp = nullptr;
-            long v = strtol(m, &endp, 10);
-            if (endp && *endp == '\0') total += v;   // pure integer only
-            else { summable = false; break; }
-        }
-        lv_obj_t* tcol = flexBox(ah, LV_FLEX_FLOW_ROW, 6);
-        lv_obj_set_size(tcol, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_set_flex_align(tcol, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-        line(tcol, "Today", COL_MUTED, F14);
-        if (summable) {
-            char tb[16]; snprintf(tb, sizeof(tb), "%ld", total);
-            line(tcol, tb, COL_TEXT, F16);
-        } else {
-            line(tcol, "—", COL_MUTED, F16);
-        }
-    }
-
-    // Use the first account with activity for the histogram.
-    const std::vector<uint8_t>* series = nullptr;
-    for (const AccountRow& a : s_data.accounts)
-        if (!a.act.empty()) { series = &a.act; break; }
-    if (series) histogram(act, *series, COL_ACCENT, 56);
-    else        line(act, "no activity data", COL_FAINT, F14);
-
-    lv_obj_t* axis = flexBox(act, LV_FLEX_FLOW_ROW, 0);
-    lv_obj_set_size(axis, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_align(axis, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    for (const char* t : {"00", "06", "12", "18", "24"})
-        line(axis, t, COL_FAINT, F14);
 }
 
 // ----------------------------------------------------------------- cloudflare

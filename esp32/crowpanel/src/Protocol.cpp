@@ -63,9 +63,10 @@ String Protocol::parseCockpit(const JsonObjectConst& params, Dashboard& out) {
         r.fhSec   = a["fh_sec"] | -1;
         r.wkPct   = pct100(a["wk_pct"]);
         r.wkRenew = a["wk_rnw"] | "";
-        r.plan    = a["plan"]   | "";
-        r.msgs    = a["msgs"]   | "";
-        parseSeries(a["act"].as<JsonArrayConst>(), r.act, ACT_BUCKETS);
+        r.wsPct   = pct100(a["ws_pct"]);
+        r.sev     = a["sev"]    | "";
+        r.cred    = a["cred"]   | "";
+        r.actv    = a["actv"]   | "";
         r.st      = statusChar(a["st"] | "ok");
         next.accounts.push_back(r);
     }

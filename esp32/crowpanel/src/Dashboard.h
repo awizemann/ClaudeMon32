@@ -23,7 +23,6 @@ static const size_t MAX_SITES    = 12;   // Cloudflare sites (paginated 6/page)
 static const size_t MAX_PRODUCTS = 4;    // Paddle product grid (2x2)
 static const size_t MAX_REPOS    = 6;    // GitHub repo rows
 static const size_t MAX_ALERTS   = 8;    // derived alerts
-static const size_t ACT_BUCKETS  = 24;   // messages/hour histogram
 static const size_t MAX_SPARK    = 32;   // sparkline point clamp
 
 // Per-row source health, mirrors the host's `st` field. 'o' ok, 'a' auth,
@@ -43,11 +42,12 @@ struct AccountRow {
     int8_t fhPct = -1;        // 5-hour utilization 0-100, -1 unknown
     String fhReset;           // host-rendered "1H02M" (fallback string)
     int32_t fhSec = -1;       // seconds to 5h reset, device counts down; -1 unknown
-    int8_t wkPct = -1;        // weekly utilization 0-100, -1 unknown
+    int8_t wkPct = -1;        // weekly (overall) utilization 0-100, -1 unknown
     String wkRenew;           // "WED 8PM (3D)"
-    String plan;              // "Max 20×"
-    String msgs;              // pre-formatted "412"
-    std::vector<uint8_t> act; // 24-bucket messages/hour histogram, each 0-100
+    int8_t wsPct = -1;        // scoped-weekly utilization 0-100, -1 unknown/absent
+    String sev;               // worst server severity: "warning"/"critical"/""; "" = no badge
+    String cred;              // extra-usage credits "$0.03 / $250"; "" = disabled/hidden
+    String actv;              // currently-binding window: "5h"/"week"/"scoped"/""
     char   st = 'o';
 };
 
