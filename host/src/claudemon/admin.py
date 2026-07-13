@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import collect, config as configmod, keychain, render, serial_link
+from . import collect, config as configmod, keychain, oauth, render, serial_link, usage
 
 log = logging.getLogger(__name__)
 
@@ -174,6 +174,66 @@ class AdminState:
         self._invalidate()
         return {"ok": True}
 
+    # -- anthropic oauth (login/logout mirror the CLI's `login`/`logout`) ---
+
+    def oauth_start(self, _payload: dict | None = None) -> dict:
+        """POST /api/oauth/start — mint a PKCE challenge + state and return the
+        authorize URL. The verifier + state round-trip through the (local)
+        browser and come back on /finish; they're single-use and ephemeral."""
+        verifier, challenge = oauth.make_pkce()
+        state = oauth.new_state()
+        return {"url": oauth.build_authorize_url(challenge, state), "verifier": verifier, "state": state}
+
+    def oauth_finish(self, payload: dict) -> dict:
+        """POST /api/oauth/finish — {label, code, verifier, state}. Exchanges the
+        pasted `code#state` for credentials and stores them in the Keychain,
+        exactly like `claudemon login`. Tokens are never logged or returned."""
+        if not isinstance(payload, dict):
+            raise _BadRequest("body must be a JSON object")
+        label = (payload.get("label") or "").strip()
+        code = (payload.get("code") or "").strip()
+        if not label:
+            raise _BadRequest("label is required")
+        if not code:
+            raise _BadRequest("code is required")
+        try:
+            creds = oauth.exchange_code(code, payload.get("verifier") or "", payload.get("state") or "")
+        except oauth.OAuthError as e:
+            raise _BadRequest(f"login failed: {e}") from None
+        creds.organization_id = usage.fetch_org_id(creds)
+        duplicate = self._find_duplicate_org(label, creds.organization_id)
+        keychain.save_account(label, creds)
+        self._invalidate()
+        log.info("admin: added anthropic account '%s'", label)  # tokens never logged
+        return {"label": label, "subscription": creds.subscription_type, "duplicate": duplicate}
+
+    def oauth_logout(self, payload: dict) -> dict:
+        """POST /api/oauth/logout — {label}. Removes an account's credentials."""
+        label = (payload.get("label") or "").strip() if isinstance(payload, dict) else ""
+        if not label:
+            raise _BadRequest("label is required")
+        keychain.delete_account(label)
+        self._invalidate()
+        log.info("admin: removed anthropic account '%s'", label)
+        return {"label": label, "removed": True}
+
+    @staticmethod
+    def _find_duplicate_org(new_label: str, org_id: str | None) -> str | None:
+        """Label of an existing account sharing this org id (a re-used browser
+        session), or None. Mirrors cli._find_duplicate_org."""
+        if not org_id:
+            return None
+        for label in keychain.list_accounts():
+            if label == new_label:
+                continue
+            try:
+                existing = keychain.load_account(label)
+            except keychain.KeychainError:
+                continue
+            if existing.organization_id == org_id:
+                return label
+        return None
+
     def save_wifi(self, payload: dict) -> dict:
         """POST /api/wifi — {ssid, pass}. Provisions the device's WiFi over USB
         serial (sends set_wifi, then polls get_status for the acquired IP). The
@@ -268,6 +328,9 @@ def make_handler(state: AdminState):
                 "/api/token": state.save_token,
                 "/api/config": state.save_config,
                 "/api/wifi": state.save_wifi,
+                "/api/oauth/start": state.oauth_start,
+                "/api/oauth/finish": state.oauth_finish,
+                "/api/oauth/logout": state.oauth_logout,
             }
             fn = handlers.get(path)
             if fn is None:

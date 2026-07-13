@@ -276,18 +276,38 @@ function renderSources() {
     const card = document.createElement("div");
     card.className = "card";
     if (src.oauth) {
-      const connected = (STATE.anthropic.accounts || []).length > 0;
-      const n = STATE.anthropic.accounts.length;
+      const accts = STATE.anthropic.accounts || [];
+      const connected = accts.length > 0;
+      const list = accts.length
+        ? accts.map(a => `<div class="token-row" style="justify-content:space-between;align-items:center">
+             <span class="label" style="flex:1">${esc(a)}</span>
+             <button class="btn ghost" data-logout="${esc(a)}">Remove</button></div>`).join("")
+        : `<p class="note">No accounts yet.</p>`;
       card.innerHTML = `
         <div class="card-head">
           <span class="card-title">${src.name}</span>
           <span class="pill ${connected ? "on" : "off"}">${connected ? "Connected" : "Disconnected"}</span>
           <span class="spacer"></span>
         </div>
-        <div class="micro">OAuth login</div>
-        <p class="note">${connected
-          ? n + " account" + (n === 1 ? "" : "s") + " signed in: " + STATE.anthropic.accounts.map(esc).join(", ")
-          : "No accounts."} Managed with <code>claudemon login</code> on the host (read-only here).</p>`;
+        <div class="micro">OAuth accounts</div>
+        ${list}
+        <div class="micro" style="margin-top:14px">Add account</div>
+        <div class="token-row">
+          <input class="token oauth-label" type="text" autocomplete="off" spellcheck="false" placeholder="account name, e.g. work">
+          <button class="btn oauth-start">Get login link</button>
+        </div>
+        <div class="oauth-step2" style="display:none;margin-top:8px">
+          <p class="note"><a class="oauth-url" target="_blank" rel="noopener" style="color:var(--accent)">Open the Claude login page →</a> (if it didn't open automatically)</p>
+          <p class="note">After authorizing, paste the code it shows (looks like <code>code#state</code>):</p>
+          <div class="token-row">
+            <input class="token oauth-code" type="text" autocomplete="off" spellcheck="false" placeholder="paste code here">
+            <button class="btn oauth-finish">Add account</button>
+          </div>
+        </div>`;
+      for (const b of card.querySelectorAll("[data-logout]"))
+        b.onclick = () => oauthLogout(b.dataset.logout);
+      $(".oauth-start", card).onclick = () => oauthStart(card);
+      $(".oauth-finish", card).onclick = () => oauthFinish(card);
     } else {
       const s = STATE.sources[src.key];
       card.innerHTML = `
@@ -319,6 +339,53 @@ async function saveToken(service, token) {
       body: JSON.stringify({ service, token }),
     });
     toast(token.trim() ? service + " token saved" : service + " token cleared");
+    await loadState();
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ---- Anthropic OAuth (mirrors `claudemon login`/`logout`) ---- */
+async function oauthStart(card) {
+  const label = $(".oauth-label", card).value.trim();
+  if (!label) { toast("Enter an account name", true); return; }
+  try {
+    const r = await api("/api/oauth/start", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    // PKCE verifier + state ride along on the card until /finish (single-use).
+    card._oauth = { verifier: r.verifier, state: r.state, label };
+    $(".oauth-url", card).href = r.url;          // reliable fallback link
+    $(".oauth-step2", card).style.display = "";
+    window.open(r.url, "_blank", "noopener");     // best-effort auto-open
+    toast("Authorize in the opened tab, then paste the code");
+  } catch (e) { toast(e.message, true); }
+}
+
+async function oauthFinish(card) {
+  const pend = card._oauth;
+  if (!pend) { toast("Click 'Get login link' first", true); return; }
+  const code = $(".oauth-code", card).value.trim();
+  if (!code) { toast("Paste the code first", true); return; }
+  try {
+    const r = await api("/api/oauth/finish", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: pend.label, code, verifier: pend.verifier, state: pend.state }),
+    });
+    let msg = "Added " + r.label + (r.subscription ? " (" + r.subscription + ")" : "");
+    if (r.duplicate) msg += " — note: same account as '" + r.duplicate + "'";
+    toast(msg);
+    card._oauth = null;
+    await loadState();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function oauthLogout(label) {
+  if (!confirm("Remove account '" + label + "'?")) return;
+  try {
+    await api("/api/oauth/logout", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    });
+    toast("Removed " + label);
     await loadState();
   } catch (e) { toast(e.message, true); }
 }
