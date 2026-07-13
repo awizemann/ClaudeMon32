@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import collect, config as configmod, keychain, render
+from . import collect, config as configmod, keychain, render, serial_link
 
 log = logging.getLogger(__name__)
 
@@ -174,6 +174,39 @@ class AdminState:
         self._invalidate()
         return {"ok": True}
 
+    def save_wifi(self, payload: dict) -> dict:
+        """POST /api/wifi — {ssid, pass}. Provisions the device's WiFi over USB
+        serial (sends set_wifi, then polls get_status for the acquired IP). The
+        password is relayed to the device — stored in its NVS — and is never
+        logged or persisted on the host. Requires the serial port to be free
+        (i.e. the daemon isn't pushing over serial)."""
+        if not isinstance(payload, dict):
+            raise _BadRequest("body must be a JSON object")
+        ssid = (payload.get("ssid") or "").strip()
+        if not ssid:
+            raise _BadRequest("ssid is required")
+        password = payload.get("pass")
+        password = password if isinstance(password, str) else ""
+
+        link = serial_link.DeviceLink()
+        if not link.connect():
+            raise _BadRequest("device not found on USB serial — is it plugged in (and the daemon not on serial)?")
+        try:
+            resp = link.send_command({"cmd": "set_wifi", "params": {"ssid": ssid, "pass": password}})
+            if not resp or resp.get("status") != "ok":
+                raise _BadRequest("device rejected the WiFi credentials")
+            log.info("admin: provisioned WiFi for ssid '%s'", ssid)  # password never logged
+            ip = ""
+            for _ in range(20):
+                time.sleep(1.0)
+                st = link.send_command({"cmd": "get_status"})
+                if st and st.get("msg"):
+                    ip = st["msg"]
+                    break
+        finally:
+            link.close()
+        return {"ip": ip, "connected": bool(ip)}
+
 
 class _BadRequest(Exception):
     """A 400 — malformed/invalid request body, distinct from a 500."""
@@ -234,6 +267,7 @@ def make_handler(state: AdminState):
             handlers = {
                 "/api/token": state.save_token,
                 "/api/config": state.save_config,
+                "/api/wifi": state.save_wifi,
             }
             fn = handlers.get(path)
             if fn is None:

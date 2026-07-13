@@ -12,6 +12,7 @@
 
 #include "board_config.h"
 #include "Dashboard.h"
+#include "Net.h"
 #include "Protocol.h"
 #include "UI.h"
 
@@ -31,7 +32,10 @@ static void tick1hz(lv_timer_t*) {
     ui_tick_1hz();
 }
 
-static void handleLine(const String& line) {
+// Dispatch one command line and write the reply to `out` — Serial for the USB
+// path, the WiFiClient for the TCP path (both are Print). The Dashboard is
+// shared global state, so either transport can drive the display.
+static void handleLine(const String& line, Print& out) {
     String trimmed = line;
     trimmed.trim();
     if (trimmed.isEmpty()) return;   // bare '\n' the host sends on (re)connect
@@ -41,7 +45,7 @@ static void handleLine(const String& line) {
 
     // Reply BEFORE rendering — the LVGL repaint can take a beat and the host
     // waits on this line (matched by echoed cmd).
-    Serial.println(reply);
+    out.println(reply);
 
     if (updated) {
         g_pendingRender = true;
@@ -60,6 +64,9 @@ void setup() {
     // Local live-tick — one shared LVGL timer for the clock + all countdowns.
     lv_timer_create(tick1hz, 1000, nullptr);
 
+    // WiFi transport (additive; serial keeps working). Joins WiFi if provisioned.
+    net_init(handleLine);
+
     Serial.println("[INIT] Ready.");
 }
 
@@ -69,7 +76,7 @@ void loop() {
         char c = (char)Serial.read();
         if (c == '\n' || c == '\r') {
             if (g_rx.length()) {
-                handleLine(g_rx);
+                handleLine(g_rx, Serial);
                 g_rx = "";
             }
         } else {
@@ -82,6 +89,9 @@ void loop() {
             }
         }
     }
+
+    // WiFi transport: drain any TCP client and dispatch through the same handler.
+    net_loop();
 
     platform_lvgl_tick();
 

@@ -1,5 +1,6 @@
 #include "Protocol.h"
 #include <ArduinoJson.h>
+#include "Net.h"
 
 // Clamp a JSON int to 0-100 (for the *_pct / cache fields the device bars).
 static int8_t pct100(JsonVariantConst v, int dflt = -1) {
@@ -42,6 +43,18 @@ String Protocol::handle(const String& line, Dashboard& out, bool& dashboardUpdat
         String reply = parseCockpit(params, out);
         dashboardUpdated = out.valid;   // only render if the parse populated data
         return reply;
+    }
+    if (strcmp(cmd, "set_wifi") == 0) {
+        const char* ssid = params["ssid"];
+        if (ssid == nullptr || ssid[0] == '\0') return makeError("set_wifi requires 'ssid'");
+        net_set_wifi(String(ssid), String(params["pass"] | ""));
+        return makeOk("set_wifi", "credentials stored; connecting");
+    }
+    if (strcmp(cmd, "get_status") == 0) {
+        // The device IP travels back in `msg` — the host uses it to discover
+        // where to push (or to confirm a set_wifi took). "" until associated.
+        String ip = net_ip();
+        return makeOk("get_status", ip.length() ? ip.c_str() : "");
     }
     return makeError("unknown command");
 }

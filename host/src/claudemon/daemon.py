@@ -94,14 +94,19 @@ def _settings() -> configmod.Settings:
         return configmod.Settings()
 
 
-def run_loop() -> None:
+def run_loop(link=None) -> None:
+    """Poll/render/push loop. `link` is any transport with the DeviceLink
+    interface (connected / connect / close / send_command / port) — a serial
+    DeviceLink by default, or a net_link.NetworkLink for WiFi push. The
+    reconnect/backoff logic below is transport-agnostic."""
     if not keychain.list_accounts():
         log.error("no accounts configured — run `claudemon login <label>` first")
         raise SystemExit(1)
 
     log.info("starting cockpit poll loop")
     collector = collect.DashboardCollector()
-    link = DeviceLink()
+    if link is None:
+        link = DeviceLink()
     last_pushed: str | None = None
     last_state_sig: str | None = None
     last_push_at = float("-inf")  # monotonic() is uptime-based; 0.0 would gate the

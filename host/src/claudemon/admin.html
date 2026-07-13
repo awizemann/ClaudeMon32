@@ -215,6 +215,13 @@
         </div>
         <p class="note">Drives the host daemon's poll/push loop.</p>
       </div>
+      <div class="card">
+        <div class="card-head"><span class="card-title">WiFi</span></div>
+        <div class="token-row"><input class="token" type="text" id="wifi_ssid" autocomplete="off" spellcheck="false" placeholder="2.4GHz network name (SSID)"></div>
+        <div class="token-row" style="margin-top:8px"><input class="token" type="password" id="wifi_pass" autocomplete="off" placeholder="password"></div>
+        <button class="btn" id="save-wifi" style="margin-top:12px">Connect device to WiFi</button>
+        <p class="note" id="wifi_status">Provisioned over USB and stored on the device (NVS); the password is never saved on the host. The panel is 2.4GHz-only — connecting can take a few seconds.</p>
+      </div>
       <div class="static-tile"><div class="k">Theme</div><div class="v">Dark · locked</div></div>
       <button class="btn" id="save-device" style="margin-top:16px">Save device</button>
     </section>
@@ -446,6 +453,36 @@ async function saveSettings(fields) {
   } catch (e) { toast(e.message, true); }
 }
 
+/* ---- WiFi provisioning (Device tab) ---- */
+async function saveWifi() {
+  const ssid = $("#wifi_ssid").value.trim();
+  const pass = $("#wifi_pass").value;
+  const status = $("#wifi_status");
+  const btn = $("#save-wifi");
+  if (!ssid) { toast("Enter a network name", true); return; }
+  btn.disabled = true;
+  status.textContent = "Connecting the device to WiFi over USB…";
+  try {
+    const res = await api("/api/wifi", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ssid, pass }),
+    });
+    if (res.ip) {
+      status.textContent = "Connected — device is on WiFi at " + res.ip;
+      toast("Device joined WiFi");
+    } else {
+      status.textContent = "Credentials stored, but the device hasn't reported an IP — check the password and that the network is 2.4GHz.";
+      toast("No IP reported yet", true);
+    }
+  } catch (e) {
+    status.textContent = "Failed: " + e.message;
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+    $("#wifi_pass").value = "";
+  }
+}
+
 /* ---- tabs ---- */
 function showTab(tab) {
   for (const b of document.querySelectorAll(".nav-item"))
@@ -463,6 +500,7 @@ document.querySelectorAll(".nav-item").forEach(b =>
   b.onclick = () => showTab(b.dataset.tab));
 $("#save-alerts").onclick = () => saveSettings(["usage_threshold", "alert_down", "alert_4xx"]);
 $("#save-device").onclick = () => saveSettings(["brightness", "refresh"]);
+$("#save-wifi").onclick = saveWifi;
 
 loadState().catch(e => toast("Failed to load: " + e.message, true));
 </script>

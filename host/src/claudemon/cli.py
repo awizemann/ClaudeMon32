@@ -8,6 +8,7 @@ import json
 import logging
 import logging.handlers
 import sys
+import time
 import webbrowser
 
 from . import (
@@ -19,6 +20,7 @@ from . import (
     github,
     keychain,
     launchd,
+    net_link,
     oauth,
     paddle,
     render,
@@ -393,9 +395,80 @@ def cmd_admin(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run(_args: argparse.Namespace) -> int:
-    daemon.run_loop()
+def _build_link(spec: str | None):
+    """Resolve a --device spec into a transport link. `serial` (default, auto-
+    detect) or `serial:/dev/cu.xxx`; `tcp` (mDNS claudemon.local) or `tcp:HOST`
+    / `tcp:HOST:PORT`."""
+    if not spec or spec == "serial":
+        return DeviceLink()
+    if spec.startswith("serial:"):
+        return DeviceLink(port=spec.split(":", 1)[1])
+    if spec == "tcp":
+        return net_link.NetworkLink()
+    if spec.startswith("tcp:"):
+        rest = spec.split(":", 1)[1]
+        if ":" in rest:
+            host, port = rest.rsplit(":", 1)
+            return net_link.NetworkLink(host, int(port))
+        return net_link.NetworkLink(rest)
+    raise SystemExit(f"unknown --device spec '{spec}' (use serial | serial:PORT | tcp | tcp:HOST[:PORT])")
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    daemon.run_loop(link=_build_link(getattr(args, "device", None)))
     return 0
+
+
+def _wifi_password_from_keychain(ssid: str) -> str | None:
+    """Read a stored WiFi password from the macOS Keychain (the user approves a
+    system auth dialog). Returns None if unavailable — never prints the value."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password", "-D", "AirPort network password", "-a", ssid, "-w"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else None
+
+
+def cmd_set_wifi(args: argparse.Namespace) -> int:
+    """Provision the device's WiFi over USB serial. The password is read from the
+    Keychain (--keychain) or prompted (hidden) — never from argv/history — and
+    sent straight to the device, which stores it in NVS. Then polls for the IP."""
+    ssid = args.ssid
+    password: str | None = None
+    if args.keychain:
+        password = _wifi_password_from_keychain(ssid)
+        if password is None:
+            print(f"could not read '{ssid}' password from the Keychain; prompting instead", file=sys.stderr)
+    if password is None:
+        password = getpass.getpass(f"WiFi password for '{ssid}' (input hidden): ")
+    link = DeviceLink(port=args.port) if args.port else DeviceLink()
+    if not link.connect():
+        print("device not found on serial — is it plugged in?", file=sys.stderr)
+        return 1
+    resp = link.send_command({"cmd": "set_wifi", "params": {"ssid": ssid, "pass": password}})
+    if not resp or resp.get("status") != "ok":
+        print(f"set_wifi failed: {resp}", file=sys.stderr)
+        link.close()
+        return 1
+    print("credentials stored; waiting for the device to join WiFi...")
+    ip = ""
+    for _ in range(20):
+        time.sleep(1.0)
+        st = link.send_command({"cmd": "get_status"})
+        if st and st.get("msg"):
+            ip = st["msg"]
+            break
+    link.close()
+    if ip:
+        print(f"device joined WiFi at {ip}")
+        print("verify/push over WiFi with:  claudemon run --device tcp")
+        return 0
+    print("device did not report an IP — check the SSID/password and try again", file=sys.stderr)
+    return 1
 
 
 def cmd_install_agent(_args: argparse.Namespace) -> int:
@@ -502,7 +575,18 @@ def main() -> None:
 
     p = sub.add_parser("run", help="poll/push loop (used by the launchd agent)")
     p.add_argument("--foreground", action="store_true", help="log to stderr instead of the log file")
+    p.add_argument(
+        "--device", default="serial",
+        help="transport to the panel: 'serial' (default, auto-detect), 'serial:/dev/cu.xxx', "
+        "'tcp' (WiFi via mDNS claudemon.local), or 'tcp:HOST[:PORT]'",
+    )
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("set-wifi", help="provision the panel's WiFi over USB (prompts for the password)")
+    p.add_argument("ssid", help="WiFi network name")
+    p.add_argument("--keychain", action="store_true", help="read the password from the macOS Keychain instead of prompting")
+    p.add_argument("--port", help="serial port (default: auto-detect)")
+    p.set_defaults(func=cmd_set_wifi)
 
     p = sub.add_parser("install-agent", help="install + start the launchd background agent")
     p.set_defaults(func=cmd_install_agent)
