@@ -36,34 +36,44 @@ def _account(
     fh_sev: str | None = None,
     wk_sev: str | None = None,
     ws_sev: str | None = None,
+    active: str | None = None,        # "5h" | "week" | "scoped" — the binding limit
+    cred_used: float | None = None,   # dollars; presence enables credits
+    cred_limit: float | None = None,
     state: AccountState = AccountState.OK,
 ) -> AccountUsage:
     fh = WindowUsage(
         pct=fh_pct,
         resets_at=NOW + timedelta(minutes=fh_in_min) if fh_in_min is not None else None,
         severity=fh_sev,
+        active=active == "5h",
     )
     wk = WindowUsage(
         pct=wk_pct,
         resets_at=NOW + timedelta(days=3) if wk_pct is not None else None,
         severity=wk_sev,
+        active=active == "week",
     )
     ws = WindowUsage(
         pct=ws_pct,
         resets_at=NOW + timedelta(days=3) if ws_pct is not None else None,
         severity=ws_sev,
+        active=active == "scoped",
     )
-    return AccountUsage(label=label, five_hour=fh, week=wk, week_scoped=ws, state=state)
+    return AccountUsage(
+        label=label, five_hour=fh, week=wk, week_scoped=ws, state=state,
+        credits_enabled=cred_used is not None, credits_used=cred_used, credits_limit=cred_limit,
+    )
 
 
 @pytest.fixture
 def accounts() -> list[AccountUsage]:
-    """3 accounts matching the handoff example figures, with a scoped-weekly
-    gauge and a server severity on the busiest one (Work at warning)."""
+    """3 accounts matching the handoff example figures: a scoped-weekly gauge, a
+    server severity on the busiest one (Work at warning), an active-window flag,
+    and extra-usage credits enabled on Personal."""
     return [
-        _account("Personal", 46, 133, 61, ws_pct=40),
-        _account("Work", 88, 62, 74, ws_pct=81, wk_sev="warning", ws_sev="warning"),
-        _account("Studio", 22, 228, 39, ws_pct=15),
+        _account("Personal", 46, 133, 61, ws_pct=40, active="5h", cred_used=0.03, cred_limit=250.0),
+        _account("Work", 88, 62, 74, ws_pct=81, wk_sev="warning", ws_sev="warning", active="week"),
+        _account("Studio", 22, 228, 39, ws_pct=15, active="5h"),
     ]
 
 

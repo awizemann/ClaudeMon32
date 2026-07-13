@@ -286,12 +286,37 @@ def worst_severity(*windows) -> str:
     return worst
 
 
+def fmt_credits(enabled: bool, used: float | None, limit: float | None) -> str:
+    """Extra-usage credits as a compact "$0.03 / $250" (or "$0.03" when
+    uncapped). "" when credits are disabled or the spent amount is unknown —
+    the device then hides the credits line entirely."""
+    if not enabled or used is None:
+        return ""
+    used_s = f"${used:,.2f}"
+    if limit is None:
+        return used_s
+    return f"{used_s} / ${limit:,.0f}"
+
+
+def active_window(snap: AccountUsage) -> str:
+    """Which limit window the server marks as currently binding: "5h" | "week" |
+    "scoped" | "" (none). The device accents that gauge."""
+    if snap.five_hour.active:
+        return "5h"
+    if snap.week.active:
+        return "week"
+    if snap.week_scoped.active:
+        return "scoped"
+    return ""
+
+
 def _cockpit_account(snap: AccountUsage, now: datetime) -> dict:
-    """One Anthropic account card for the cockpit. Carries the 5h + weekly + the
+    """One Anthropic account card for the cockpit. Carries the 5h + weekly +
     scoped-weekly gauges, the numeric seconds-to-5h-reset the device counts down
-    locally, the weekly renewal string, and the server's worst-window severity
-    (the alert badge). No plan/messages/activity — the usage endpoint has no
-    source for those (verified across accounts)."""
+    locally, the weekly renewal string, the server's worst-window severity (the
+    alert badge), extra-usage credits (when enabled), and which window is the
+    server's currently-active limit. No plan/messages/activity — the usage
+    endpoint has no source for those (verified across accounts)."""
     return {
         "label": snap.label.upper()[:MAX_LABEL_LEN],
         "fh_pct": _pct_or_unknown(snap.five_hour),
@@ -301,6 +326,8 @@ def _cockpit_account(snap: AccountUsage, now: datetime) -> dict:
         "wk_rnw": fmt_renewal(snap.week.resets_at, now),
         "ws_pct": _pct_or_unknown(snap.week_scoped),
         "sev": worst_severity(snap.five_hour, snap.week, snap.week_scoped),
+        "cred": fmt_credits(snap.credits_enabled, snap.credits_used, snap.credits_limit),
+        "actv": active_window(snap),
         "st": snap.state.value,
     }
 

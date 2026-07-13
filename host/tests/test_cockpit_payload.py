@@ -50,7 +50,7 @@ class TestStructure:
         card = p["anthropic"]["accounts"][0]
         assert set(card) == {
             "label", "fh_pct", "fh_rst", "fh_sec", "wk_pct", "wk_rnw",
-            "ws_pct", "sev", "st",
+            "ws_pct", "sev", "cred", "actv", "st",
         }
         # accounts are sorted by label -> Personal, Studio, Work
         assert [c["label"] for c in p["anthropic"]["accounts"]] == ["PERSONAL", "STUDIO", "WORK"]
@@ -61,6 +61,15 @@ class TestStructure:
         assert cards["WORK"]["sev"] == "warning"
         assert cards["PERSONAL"]["sev"] == ""   # all-normal -> no badge
         assert cards["WORK"]["ws_pct"] == 81     # scoped-weekly gauge carried through
+
+    def test_credits_and_active_window(self, accounts, zones, repos):
+        cards = {c["label"]: c for c in _build(accounts, zones, repos)["params"]["anthropic"]["accounts"]}
+        # Personal has extra-usage credits enabled; Work does not.
+        assert cards["PERSONAL"]["cred"] == "$0.03 / $250"
+        assert cards["WORK"]["cred"] == ""
+        # Active-window marker reflects the server's is_active flag.
+        assert cards["PERSONAL"]["actv"] == "5h"
+        assert cards["WORK"]["actv"] == "week"
 
     def test_cloudflare_totals_and_down_count(self, accounts, zones, repos):
         cf = _build(accounts, zones, repos)["params"]["cloudflare"]
@@ -179,6 +188,8 @@ class TestUnknownData:
         assert card["fh_rst"] == ""
         assert card["ws_pct"] == -1   # no scoped window -> blank
         assert card["sev"] == ""      # no severity -> no badge
+        assert card["cred"] == ""     # credits disabled -> hidden
+        assert card["actv"] == ""     # no active window
 
 
 class TestPayloadSize:

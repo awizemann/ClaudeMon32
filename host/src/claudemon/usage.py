@@ -111,14 +111,37 @@ def parse_usage(label: str, data: dict) -> AccountUsage:
             json.dumps(data)[:2000],
         )
 
+    enabled, used, limit = _credits(data.get("spend"))
     return AccountUsage(
         label=label,
         five_hour=five_hour or WindowUsage(),
         week=week or WindowUsage(),
         week_scoped=week_scoped or WindowUsage(),
+        credits_enabled=enabled,
+        credits_used=used,
+        credits_limit=limit,
         state=AccountState.DRIFT if drift else AccountState.OK,
         fetched_at=utcnow(),
     )
+
+
+def _credits(spend) -> tuple[bool, float | None, float | None]:
+    """Extra-usage credits from the `spend` object. Returns (enabled, used$,
+    limit$) — amounts converted from minor units to whole currency units.
+    Disabled/absent spend reads as (False, None, None)."""
+    if not isinstance(spend, dict) or not spend.get("enabled"):
+        return False, None, None
+
+    def dollars(node) -> float | None:
+        if not isinstance(node, dict):
+            return None
+        amount = node.get("amount_minor")
+        if not isinstance(amount, (int, float)):
+            return None
+        exp = node.get("exponent")
+        return amount / (10 ** exp) if isinstance(exp, int) else float(amount)
+
+    return True, dollars(spend.get("used")), dollars(spend.get("limit"))
 
 
 def _window(node, limit) -> WindowUsage | None:
@@ -139,6 +162,7 @@ def _window(node, limit) -> WindowUsage | None:
             pct = _normalize_pct(utilization)
         resets_at = _parse_timestamp(node.get("resets_at"))
 
+    active = False
     if isinstance(limit, dict):
         if pct is None and isinstance(limit.get("percent"), (int, float)):
             pct = _normalize_pct(limit["percent"])
@@ -146,10 +170,11 @@ def _window(node, limit) -> WindowUsage | None:
             resets_at = _parse_timestamp(limit.get("resets_at"))
         if isinstance(limit.get("severity"), str):
             severity = limit["severity"]
+        active = bool(limit.get("is_active"))
 
     if pct is None and resets_at is None and severity is None:
         return None
-    return WindowUsage(pct=pct, resets_at=resets_at, severity=severity)
+    return WindowUsage(pct=pct, resets_at=resets_at, severity=severity, active=active)
 
 
 def _normalize_pct(value: float) -> int:

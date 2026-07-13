@@ -61,6 +61,9 @@ class WindowUsage:
     # limits[] ("normal" / "warning" / ...). None = unknown/absent. This is
     # authoritative — preferred over the client's own pct threshold.
     severity: str | None = None
+    # Server-reported `is_active`: whether this window is the currently-binding
+    # limit (i.e. counting down right now). Usually exactly one window is active.
+    active: bool = False
 
     @property
     def known(self) -> bool:
@@ -76,6 +79,12 @@ class AccountUsage:
     # weekly window — the endpoint reports it separately in limits[]. Empty
     # WindowUsage when the account has no scoped cap.
     week_scoped: WindowUsage = field(default_factory=WindowUsage)
+    # Extra-usage / pay-as-you-go credits (the usage endpoint's `spend`). Only
+    # meaningful when the account has it enabled; amounts are in whole currency
+    # units (dollars), not minor units.
+    credits_enabled: bool = False
+    credits_used: float | None = None    # dollars spent this period
+    credits_limit: float | None = None   # dollars cap, None = uncapped
     state: AccountState = AccountState.OK
     fetched_at: datetime | None = None
 
@@ -85,6 +94,7 @@ class AccountUsage:
                 "pct": w.pct,
                 "resets_at": w.resets_at.isoformat() if w.resets_at else None,
                 "severity": w.severity,
+                "active": w.active,
             }
 
         return {
@@ -92,6 +102,9 @@ class AccountUsage:
             "five_hour": win(self.five_hour),
             "week": win(self.week),
             "week_scoped": win(self.week_scoped),
+            "credits_enabled": self.credits_enabled,
+            "credits_used": self.credits_used,
+            "credits_limit": self.credits_limit,
             "state": self.state.value,
             "fetched_at": self.fetched_at.isoformat() if self.fetched_at else None,
         }

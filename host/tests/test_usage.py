@@ -11,21 +11,25 @@ from claudemon.models import AccountState
 from claudemon.usage import parse_usage
 
 
-def _resp(fh=11.0, wk=6.0, *, fh_sev="normal", wk_sev="normal", scoped_pct=None, scoped_sev=None):
+def _resp(fh=11.0, wk=6.0, *, fh_sev="normal", wk_sev="normal", scoped_pct=None, scoped_sev=None,
+          active="session", spend=None):
     limits = [
         {"kind": "session", "percent": int(fh), "severity": fh_sev,
-         "resets_at": "2026-07-13T02:00:00+00:00"},
+         "resets_at": "2026-07-13T02:00:00+00:00", "is_active": active == "session"},
         {"kind": "weekly_all", "percent": int(wk), "severity": wk_sev,
-         "resets_at": "2026-07-19T05:00:00+00:00"},
+         "resets_at": "2026-07-19T05:00:00+00:00", "is_active": active == "weekly_all"},
     ]
     if scoped_pct is not None:
         limits.append({"kind": "weekly_scoped", "percent": scoped_pct, "severity": scoped_sev,
-                       "resets_at": "2026-07-19T05:00:00+00:00"})
-    return {
+                       "resets_at": "2026-07-19T05:00:00+00:00", "is_active": active == "weekly_scoped"})
+    resp = {
         "five_hour": {"utilization": fh, "resets_at": "2026-07-13T02:00:00+00:00"},
         "seven_day": {"utilization": wk, "resets_at": "2026-07-19T05:00:00+00:00"},
         "limits": limits,
     }
+    if spend is not None:
+        resp["spend"] = spend
+    return resp
 
 
 class TestParseUsage:
@@ -64,6 +68,28 @@ class TestParseUsage:
         assert u.five_hour.pct == 11   # from the session limit
         assert u.week.pct == 6         # from the weekly_all limit
         assert u.state is AccountState.OK
+
+    def test_active_window_from_is_active(self):
+        u = parse_usage("acct", _resp(active="weekly_all"))
+        assert u.week.active is True
+        assert u.five_hour.active is False
+
+    def test_credits_enabled_converts_minor_units(self):
+        spend = {
+            "enabled": True,
+            "used": {"amount_minor": 3, "currency": "USD", "exponent": 2},
+            "limit": {"amount_minor": 25000, "currency": "USD", "exponent": 2},
+        }
+        u = parse_usage("acct", _resp(spend=spend))
+        assert u.credits_enabled is True
+        assert u.credits_used == 0.03
+        assert u.credits_limit == 250.0
+
+    def test_credits_disabled_is_empty(self):
+        spend = {"enabled": False, "used": {"amount_minor": 0, "exponent": 2}}
+        u = parse_usage("acct", _resp(spend=spend))
+        assert u.credits_enabled is False
+        assert u.credits_used is None
 
     def test_drift_when_no_window_found(self):
         u = parse_usage("acct", {"unexpected": True})

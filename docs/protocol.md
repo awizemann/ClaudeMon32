@@ -154,7 +154,7 @@ Keys are **abbreviated** to keep the line under the cap with worst-case data
      "anthropic":{"accounts":[
        {"label":"WORK","fh_pct":88,"fh_rst":"1H02M","fh_sec":3720,
         "wk_pct":74,"wk_rnw":"WED 8PM (3D)","ws_pct":81,"sev":"warning",
-        "st":"ok"}
+        "cred":"$0.03 / $250","actv":"week","st":"ok"}
      ]},
      "cloudflare":{
        "totals":{"req":"4.28M","bw":"312GB","threats":"18.4K","cache":94},
@@ -212,11 +212,15 @@ Keys are **abbreviated** to keep the line under the cap with worst-case data
 | `wk_rnw` | string | Host-rendered weekly renewal ("WED 8PM (3D)") |
 | `ws_pct` | int | Scoped-weekly (`weekly_scoped`) utilization 0–100; **-1 = unknown/absent** |
 | `sev` | string | Worst server-reported severity across the account's windows (`"warning"` / `"critical"` / `"exceeded"`); **`""` = normal/none → no badge**. Server-authoritative, from the usage endpoint's `limits[]`. |
+| `cred` | string | Extra-usage credits, host-formatted ("$0.03 / $250", or "$0.03" uncapped); **`""` = disabled → line hidden** |
+| `actv` | string | Which window the server marks currently-binding (`is_active`): `"5h"` \| `"week"` \| `"scoped"` \| `""`. The device accents that gauge. |
 | `st` | string | `ok` \| `auth` \| `err` \| `drift` |
 
 > Note: the usage endpoint exposes no plan tier, message count, or per-hour
 > activity series (verified across accounts), so the card carries none — earlier
-> `plan`/`msgs`/`act` fields were demo-only and were removed.
+> `plan`/`msgs`/`act` fields were demo-only and were removed. The model-scoped
+> weekly windows (`seven_day_opus`/`_sonnet`/…) exist in the schema but are
+> always null for these accounts, so they are not surfaced.
 
 **`cloudflare.totals`** — `req`/`bw`/`threats` are host-formatted strings ("" unknown); `cache` is an int 0–100 (**-1 unknown**), a request-weighted hit ratio.
 
