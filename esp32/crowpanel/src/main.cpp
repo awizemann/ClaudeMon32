@@ -9,6 +9,8 @@
 // between pushes (it can't call the host in between).
 #include <Arduino.h>
 #include <lvgl.h>
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 
 #include "board_config.h"
 #include "Dashboard.h"
@@ -58,6 +60,9 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     Serial.println("[INIT] ClaudeMon CrowPanel Cockpit starting");
+
+    Serial.printf("[BOOT] reset_reason=%d free_int=%u\n",
+                  (int)esp_reset_reason(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 
     platform_lvgl_init();
     ui_init();

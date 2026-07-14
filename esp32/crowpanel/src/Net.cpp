@@ -97,7 +97,7 @@ void net_loop() {
     // Single active command client at a time (the host pushes serially). A new
     // connection replaces a stale one.
     if (!s_client || !s_client.connected()) {
-        WiFiClient incoming = s_server.available();
+        WiFiClient incoming = s_server.accept();   // 3.x: available() -> accept()
         if (incoming) {
             s_client = incoming;
             s_rx = "";

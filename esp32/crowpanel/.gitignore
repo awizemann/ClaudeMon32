@@ -1,1 +1,7 @@
 .pio
+# pioarduino hybrid-build generated artifacts (from custom_sdkconfig)
+.dummy/
+managed_components/
+sdkconfig.defaults
+sdkconfig.crowpanel-5
+dependencies.lock
